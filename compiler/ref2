@@ -1,0 +1,22 @@
+
+new x := scan Int
+print if x < 10 then
+  "x is too small!" else "x is $x"
+
+static low := -11
+static upp := 0h12_345_6093_4_782_091
+
+new y += for new x in low..upp repeat
+  if x = 5 then
+    print "5 spoted"
+    break
+  if x = 6 then
+    print "unreacheble"
+  print $x
+
+def A := x: Int, y: Nat
+
+new pair := new A -15, 66
+
+print pair
+

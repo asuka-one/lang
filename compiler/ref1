@@ -1,0 +1,25 @@
+
+# Just comment to test
+
+def some_function x = x * x
+
+print some_function 5
+
+new hello = "hello\nworld\n"
+
+#( even more
+ #( comments )#
+ ...
+#
+#)
+
+def main =
+  use std env
+  new args := env args
+
+  for arg in args repeat
+    print "$arg some text"
+    
+  new input := scan Int
+  print "you typed: $input"
+
