@@ -1,0 +1,21 @@
+#!/usr/local/bin/lang
+
+x :- Int() 5
+
+x : Int :- 5
+
+X : Int :- 555
+
+Y :- X
+
+function x y z : Nat -> Nat -> Nat -> Nat :-
+  return x + y * z
+
+function x y z : Int -> Int -> Int -> Int :- x + y + z
+
+print (_ x Y Z :- x + Y * Z) 1 2 3
+
+function x y z :-
+  lala:
+  add rdi, rsi
+  ret

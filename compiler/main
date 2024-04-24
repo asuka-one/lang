@@ -1,234 +1,130 @@
 #!/bin/python
-import sys
 
-bleh = False
-out = "out"
+outpath = "out"
+run = True
+bin = "01"
+oct = "01234567"
+dec = "0123456789"
+hex = "0123456789ABCDEF"
+sym = ":=!+-*/&|~<>"
+low = "abcdefghijklmnopqrstuvwxyz"
+cap = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+ino = ["=", "!=", "<", "<=", ">", ">=", "+", "-", "*", "/", "&",
+  "|", "~", ":=", ":-", "+=", "-=", "*=", "/=", "&=", "|=", "~=", "=>", "->"]
+kwd = ["use", "new", "return", "if", "else", "then", "in", "is", "not",
+  "and", "or", "matches", "break", "next", "for", "redo", "do", "echo", "raw"]
+state = []
+errors = []
+tree = []
+line_cnt = 0
+expr_nest = 0
+comm_nest = 0
+indt_nest = 0
+indnt = [0]
+  
+def parse_line(line):
+  global state, run, tree, errors, line_cnt  
+  buf_str, buf_sym, buf_num, buf_opr, buf_spc = "", "", "", "", ""
+
+  def eval_sym(char):
+      nonlocal buf_sym
+      global state, run
+      match buf_sym:
+        case "__exit": run = False
+        case _: pass
+      buf_sym = ""; state.pop()
+      match char:
+        case ' '  : state += ["BSPC"]
+
+  def eval_indnt(char):
+      global state, low
+      nonlocal buf_spc, buf_sym
+      buf_spc = ""; state.pop()
+      match char:
+        case '#'  : state += ["COML"]
+        case '_'  : buf_sym += char; state += ["SYMB"]
+        case char if char in low: buf_sym += char; state += ["SYMB"]
+        case '('  : state += ["PARL"] 
+  
+  state += ["LINE"]; line_cnt += 1
+  for char in line:
+    match state[-1], char:
+      case "LINE", ' '  : buf_spc += char 
+      case "LINE", _    : eval_indnt(char)
+      
+      case "COML", _    : pass
+
+      case "COMB", '#'  : state[-1] = "COMA"
+      case "COMB", '('  : state[-1] = "COMP"
+      case "COMB", '\"' : state += ["COMQ"]
+      case "COMB", _    : pass
+
+      case "COMA", ')'  : state.pop()
+      case "COMA", _    : state[-1] = "COMB"
+
+      case "COMP", '#'  : state += ["COMB"]
+      case "COMP", _    : state[-1] = "COMB"
+
+      case "COMQ", '\"' : state.pop()
+      case "COMQ", _    : pass
+
+      case "PARL", '#'  : state[-1] = "COMB"
+      case "PARL", _    : expr_nest += 1; state += ["EXPR"]
+
+      case "SYMB", ' '  : eval_sym(char)
+      case "SYMB", char if char in low: buf_sym += char
+      case "SYMB", '_'  : buf_sym += char
+      
+      case "BSPC", _    : pass
+
+      case _            : errors += [(line_cnt, state)]
+    print((char, state[-1]), end=" ")
+  print()
+
+  match state[-1]:
+    case "COML": state.pop()
+    case "COMB": pass
+    case "COMA": state[-1] = "COMB"
+    case "COMP": state[-1] = "COMB"
+    case "COMQ": state.pop()
+    case "BSPC": state.pop()
+    case "SYMB": eval_sym('\n')
 
 def parse_args(args):
-  global bleh
-  global out
+  global outpath
   usg = "help will be soon"
   ver = "0.0.1"
-  no_in = "no input"
   f_usg = False
   f_ver = False
   tmp = False
   files = []
-  err = []
+  errors = []
   for arg in args:
     if arg[0] == '-':
       match arg:
         case "--help" | "-h": f_usg = True
         case "--version" | "-v": f_ver = True
-        case "--bleh": bleh = True
         case "-o": tmp = True
-        case _: err.append(arg)
+        case _: errors += ["fatal: unknown option: " + arg]
     else:
-      if tmp: out = arg; tmp = False
-      else: files.append(arg)
-
+      if tmp: outpath = arg; tmp = False
+      else: files += [arg]
   if f_usg: print(usg); exit(0)
   if f_ver: print(ver); exit(0)
-  if not len(files) > 0: print(no_in); exit(1)
-  return files[0:1] 
-
-def lex(source):
-  bin = list("01")
-  oct = list("01234567")
-  dec = list("0123456789")
-  hex = list("0123456789ABCDEF")
-  low = list("abcdefghijklmnopqrstuvwxyz")
-  cap = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-  spc = list(" \t\v\n\r")
-  sym = list("!@#$%^&*-=+~|\/:")
-  pro = ["+", "-", "?", "!", "~", "^", "$"]
-  ino = ["=", "!=", "<", "<=", ">", ">=", "+", "-", "*", "/", "&",
-    "|", "~", ":=", "+=", "-=", "*=", "/=", "&=", "|=", "~="]
-  kwd = ["use", "def", "new", "return", "if", "else", "then",
-    "and", "or", "matches", "break", "next", "repeat", "for", "echo"]
-  (SPC, LIC, LC, IC, EIC, BC, EBC, SYMB, TYPM, TYPE, STR, CHR, STRE, SYMI,
-    SYMR, INO, ZPR, NUMB, NUMO, NUMD, NUMH, *_) = range(37)
-  state = [SPC]
-  es = []
-  tokens = []
-  buf = ""
-  buf1 = ""
-  c_lvl = 0
-  l = 1
-  for c in source:
-    s = state[-1]
-    # print(state,c)
-    match c:
-
-      case c    if s == SPC   and c in spc:
-        if c == '\n': l += 1
-      case '#'  if s == SPC :              state.append(LIC)
-      case '0'  if s == SPC :              state.append(ZPR)
-      case c    if s == SPC  and c in dec: buf += c; state.append(NUMD)
-      case c    if s == SPC  and c in low: buf += c; state.append(SYMB)
-      case c    if s == SPC  and c in cap: buf += c; state.append(TYPM)
-      case c    if s == SPC  and c in sym: buf += c; state.append(INO)
-      case '\"' if s == SPC :              state.append(STR)
-      case '\'' if s == SPC :              state.append(CHR)
-      case '`'  if s == SPC :              state.append(SYMR)
-      case _    if s == SPC :              es.append(SPC)
-
-      case '\n' if s == LIC :              l += 1; state.pop()
-      case '('  if s == LIC :              c_lvl += 1; state[-1] = IC
-      case _    if s == LIC :              state[-1] = LC
-      
-      case '\n' if s == LC  :              l += 1; state.pop()
-      case _    if s == LC  :              pass
-
-      case '\n' if s == IC  :              l += 1; state[-1] = BC
-      case ')'  if s == IC  :              state[-1] = EIC
-      case _    if s == IC  :              pass
-
-      case '\n' if s == EIC :              l += 1; state[-1] = BC
-      case '#'  if s == EIC :
-        if c_lvl == 0: state.pop()
-        else: state[-1] = EIC
-      case _    if s == EIC :              pass
-
-      case '\n' if s == BC  :              l += 1
-      case '#'  if s == BC  :              state[-1] = EBC
-      case _    if s == BC  :              pass
-
-      case '\n' if s == EBC :              l += 1; state[-1] = BC
-      case ')'  if s == EBC :
-        c_lvl -= 1
-        if c_lvl == 0: state.pop()
-        else: state[-1] = EBC
-      case _    if s == EBC :              state[-1] = BC
-
-      case c    if s == SYMB and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("KWD" if buf in kwd else "SYM", buf))
-        buf = ""; state.pop()
-      case c    if s == SYMB and c in low: buf += c
-      case '_'  if s == SYMB:              buf += c
-      case _    if s == SYMB:              es.append(SYMB)
-
-      case c    if s == TYPM and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("TYP", buf)); buf = ""; state.pop()
-      case c    if s == TYPM and c in cap: buf += c; es.append(TYPM)
-      case c    if s == TYPM and c in low: buf += c; state[-1] = TYPE
-      case _    if s == TYPM:              es.append(TYPM)
-
-      case c    if s == TYPE and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("TYP", buf)); buf = ""; state.pop()
-      case c    if s == TYPE and c in cap: buf += c; state[-1] = TM
-      case c    if s == TYPE and c in low: buf += c
-      case _    if s == TYPE:              es.append(TYPE)
-
-      case '\n' if s == STR :              l += 1; es.append(10); state.pop()
-      case '\"' if s == STR :              tokens.append(("STR", buf)); buf = ""; state.pop()
-      case '\\' if s == STR :              state.append(STRE)
-      case '$'  if s == STR :              state.append(15)
-      case _    if s == STR :              buf += c
-
-      case '\n' if s == CHR :              l += 1; es.append(CHR)
-      case '\'' if s == CHR :              tokens.append(("CHR", buf)); buf = ""; state.pop()
-      case _    if s == CHR :              buf += c
-
-      case '\n' if s == STRE:              l += 1; es.append(STRE); state.pop()
-      case _    if s == STRE:
-        match c:
-          case 'n': buf += '\n'
-          case 't': buf += '\t'
-          case 'r': buf += '\r'
-          case _  : es.append(STRE)
-        state.pop()
-
-      case c    if s == SYMI and c in spc:
-        if c == '\n': l += 1; es.append(SYMI); state.pop()
-        tokens.append(("ISN", buf1)); buf += c; buf1 = ""; state.pop()
-      case '\"' if s == SYMI:
-        tokens.append(("ISM", buf1)); buf1 = ""; state.pop()
-        tokens.append(("STR", buf)); buf = ""; state.pop()
-      case c    if s == SYMI and c in low: buf1 += c
-      case '_'  if s == SYMI:              buf += c
-      case _    if s == SYMI:              es.append(SYMI)
-
-      case c    if s == SYMR and c in spc:
-        if c == '\n': l += 1
-        es.append(SYMR); buf = ""; state.pop()
-      case '`'  if s == SYMR:              tokens.append(("SYMR", buf)); buf = ""; state.pop()
-      case '\\' if s == SYMR:              state.append(STRE)
-      case _    if s == SYMR:              buf += c
-
-      case c    if s == INO  and c in spc:
-        if c == '\n': l += 1
-        if buf in ino: tokens.append(("INO", buf)); buf = ""
-        else: es.append(INO)
-        state.pop()
-      case c    if s == INO  and c in sym: buf += c
-      case _    if s == INO :              es.append(INO)
-
-      case c    if s == ZPR  and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("NUM", buf)); buf = ""; state.pop()
-      case c    if s == ZPR  and c in dec: buf += c; state[-1] = NUMD
-      case 'b'  if s == ZPR :              buf = ""; state[-1] = NUMB
-      case 'o'  if s == ZPR :              buf = ""; state[-1] = NUMO
-      case 'd'  if s == ZPR : buf = ""; state[-1] = NUMD
-      case 'h'  if s == ZPR : buf = ""; state[-1] = NUMH
-
-      case c    if s == NUMB and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("NUM", buf)); buf = ""; state.pop()
-      case c    if s == NUMB and c in bin: buf += c
-      case _    if s == NUMB:              es.append(NUMB)
-
-      case c    if s == NUMO and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("NUM", buf))
-        buf = ""; state.pop()
-      case c    if s == NUMO and c in oct: buf += c
-      case _    if s == NUMO:              es.append(NUMO)
-
-      case c    if s == NUMD and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("NUM", buf)); buf = ""; state.pop()
-      case c    if s == NUMD and c in dec: buf += c
-      case _    if s == NUMD:              es.append(NUMD)
-
-      case c    if s == NUMH and c in spc:
-        if c == '\n': l += 1
-        tokens.append(("NUM", buf)); buf = ""; state.pop()
-      case c    if s == NUMH and c in hex: buf += c
-      case _    if s == NUMH:              es.append(NUMH)
-
-      case _    : es.append(137); state[-1] = SPC
-    # print(state,c)
-  return tokens
-
-def syn(tokens):
-  FILE, LINE, USE, *_ = range(37)
-  state = [FILE]
-  tree = []
-  for token in tokens:
-    match (state[-1], token[0]):
-      case (FILE, "KWD"):
-        match token[1]:
-          case "use": state.append(USE)
-          case _    : tree.append(token)
-      case (USE, _     ): state[-1] = FILE
-      case (_, _       ): pass
-  return tree
-
-def parse(content):
-  tokens = lex(content)
-  if bleh:
-    with open(out, "w") as file: file.write(str(tokens) + '\n')
-  return syn(tokens)
-
+  return files 
+ 
 if __name__ == "__main__":
-  contents = []
-  for path in parse_args(sys.argv[1:]):
-    with open(path, "r") as file: contents.append(file.read())
-  for content in contents:
-    print(str(parse(content)))
-
+  import sys
+  paths = parse_args(sys.argv[1:])
+  if len(paths) > 0:
+    contents = []
+    for path in paths:
+      with open(path,"r") as file: contents += [file.read().splitlines()]
+    for content in contents:
+      for line in content: parse_line(line)
+  else:
+    while run: print("> ", end=""); parse_line(input())
+    if len(errors):
+      print(errors)
+    else:
+      print("ok")

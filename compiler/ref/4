@@ -1,0 +1,25 @@
+#!/usr/local/bin/lang
+
+use asm amd64
+
+double x : Int -> Int :-
+  shl rdi, 1
+  mov rax, rdi
+  ret
+
+(# function name (one symbol), args (sequence of symbols, separated by comma or space),
+  colon, type_sig, equals, stmts
+#)
+double x : Nat -> Nat :- shl rdi, 1; mov rax, rdi; ret.
+
+triple x : Int -> Int :- x * 3
+triple x : Nat -> Nat :- double x; add rax, x (# ret is optional at the end of function #)
+
+x :- scan Str
+y : Str :- "hello world"
+f x :- x + 555
+
+print $double scan Int
+print $double scan Nat
+print $(triple scan Int, triple scan Nat)
+
