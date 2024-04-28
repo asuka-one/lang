@@ -111,10 +111,12 @@ void parse_line(string line) {
       {"not",   13},{"or",     14},
       {"raw",   15},{"redo",   16},
       {"return",17},{"then",   18},
-      {"use",   19},{"__exit", 20}
+      {"use",   19},{"__exit", 20},
+      {"__state",21}
     };
     switch (kwds[buf_sym]) {
       case 20: run = false; break;
+      case 21: cout << "("; for (int s : state) cout << s << " "; cout << "\b)\n"; break;
       default: break;
     }
     buf_sym.clear(); state.pop_back();
@@ -180,7 +182,10 @@ void parse_line(string line) {
         case_LOW : buf_sym.push_back(chr); break;
       } break;
       
-      case BSPC: break;
+      case BSPC: switch (chr) {
+        case ' ' : break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
 
       default  : break;
     }
