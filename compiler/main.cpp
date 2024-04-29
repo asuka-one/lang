@@ -35,9 +35,6 @@ $
 =
 * *=
 / /=
-+ + +=
-- - -= ->
-: :- :=
 . .. .= ...
 < <=
 >> > >=
@@ -85,18 +82,31 @@ using namespace std;
   case 'C': case 'D': case 'E': \
   case 'F'
 
+struct Symbol {
+  string*  sym;
+  string* type;
+
+  Symbol(string* sym, string* type) {
+    this->sym = sym; this->type = type;
+  }
+};
+
 string outpath = "out";
 bool run = true;
 enum State {
   LINE, COML, COMB, COMA, COMP,
-  COMQ, PARL, SYMB, EXPR, BSPC
+  COMQ, PARL, SYMB, EXPR, BSPC,
+  COLN, DEFS, ASSS, PLUS, AASS,
+  MINS, SASS, MAPS
 };
 vector<State> state = {};
 int line_cnt = 0, expr_nest = 0,
   comm_nest = 0, indt_nest = 0;
 vector<int> indnt = {0};
 string buf_str = "", buf_sym = "",
-  buf_num = "", buf_spc = ""; 
+  buf_num = "", buf_spc = "";
+
+vector<Symbol*> symtbl = {};
 
 void parse_line(string line) {
   
@@ -112,17 +122,29 @@ void parse_line(string line) {
       {"raw",   15},{"redo",   16},
       {"return",17},{"then",   18},
       {"use",   19},{"__exit", 20},
-      {"__state",21}
+      {"__state",21},{"__table",22},
+      {"__line",23}
     };
     switch (kwds[buf_sym]) {
       case 20: run = false; break;
-      case 21: cout << "("; for (int s : state) cout << s << " "; cout << "\b)\n"; break;
-      default: break;
+      case 21: cout << "("; for (int s : state)
+        cout << s << " "; cout << "\b)\n"; break;
+      case 22: cout << "("; for (Symbol* s : symtbl)
+        cout << *s->sym << ":" << *s->type <<
+        "; "; cout << "\b)\n"; break;
+      case 23: cout << line_cnt << "\n"; break;
+      default:
+        symtbl.push_back(
+          new Symbol(new string(buf_sym),new string("auto"))
+        ); break;
     }
-    buf_sym.clear(); state.pop_back();
+    buf_sym.clear();
     switch (chr) {
-      case ' ' : state.push_back(BSPC); break;
-      default  : break; 
+      case ' ' : state.back() = BSPC; break;
+      case ':' : state.back() = COLN; break;
+      case '+' : state.back() = PLUS; break;
+      case '-' : state.back() = MINS; break;
+      default  : state.pop_back(); break; 
     }
   };
 
@@ -139,55 +161,103 @@ void parse_line(string line) {
   
   state.push_back(LINE); line_cnt += 1;
 
-  for (char chr : line) {
+  for (char chr  : line) {
     switch (state.back()) {
 
-      case LINE: switch (chr) {
+      case LINE  : switch (chr) {
         case ' ' : buf_spc.push_back(chr); break;
         default  : eval_indnt(chr);
       } break;
       
-      case COML: break;
+      case COML  : break;
 
-      case COMB: switch (chr) {
+      case COMB  : switch (chr) {
         case '#' : state.back() = COMA; break;
         case '(' : state.back() = COMP; break;
         case '\"': state.push_back(COMQ); break;
         default  : break;
       } break;
 
-      case COMA: switch (chr) {
+      case COMA  : switch (chr) {
         case ')' : state.pop_back(); break;
         default  : state.back() = COMB;
       } break;
 
-      case COMP: switch (chr) {
+      case COMP  : switch (chr) {
         case '#' : state.push_back(COMB); break;
         default  : state.back() = COMB;
       } break;
 
-      case COMQ: switch (chr) {
+      case COMQ  : switch (chr) {
         case '\"': state.pop_back(); break;
         default  : break;
       } break;
 
-      case PARL: switch (chr) {
+      case PARL  : switch (chr) {
         case '#' : state.back() = COMB; break;
         default  : expr_nest += 1; state.push_back(EXPR);
       } break;
 
-      case SYMB: switch (chr) {
-        case ' ' : eval_sym(chr); break;
+      case SYMB  : switch (chr) {
+        default  : eval_sym(chr); break;
         case '_' :
         case_LOW : buf_sym.push_back(chr); break;
       } break;
       
-      case BSPC: switch (chr) {
+      case BSPC  : switch (chr) {
         case ' ' : break;
+        case ':' : state.back() = COLN; break;
+        case '+' : state.back() = PLUS; break;
+        case '-' : state.back() = MINS; break;
         case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
       } break;
 
-      default  : break;
+      case COLN  : switch (chr) {
+        case '-' : state.back() = DEFS; break;
+        case '=' : state.back() = ASSS; break;
+        case ' ' : state.back() = BSPC; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      case DEFS  : switch (chr) {
+        case ' ' : state.back() = BSPC; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      case ASSS  : switch (chr) {
+        case ' ' : state.back() = BSPC; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      case PLUS  : switch (chr) {
+        case ' ' : state.back() = BSPC; break;
+        case '=' : state.back() = AASS; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      case AASS  : switch (chr) {
+        case ' ' : state.back() = BSPC; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      case MINS  : switch (chr) {
+        case ' ' : state.back() = BSPC; break;
+        case '=' : state.back() = SASS; break;
+        case '>' : state.back() = MAPS; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      case SASS  : switch (chr) {
+        case ' ' : state.back() = BSPC; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      case MAPS  : switch (chr) {
+        case ' ' : state.back() = BSPC; break;
+        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      } break;
+
+      default    : break;
     }
     cout << "(" << chr << " " << state.back() << ") ";
   }
@@ -240,13 +310,11 @@ int main(int argc, char** argv) {
   string line = "";
   vector<string>* paths = parse_args(argc, argv);
   if (paths->size() > 0) {
-    vector<string> contents = {};
-    
-    // for (auto& path : paths) with open(path,"r") as file: contents += [file.read().splitlines()]
-    // for content in contents: for line in content: parse_line(line)
+    // vector<string> contents = {};
+    for (auto path : *paths) cout << path << "\n";
+    return 1;
   } else {
     while (run) { cout << "> "; getline(cin,line); parse_line(line); }
-    // if (errors.count()) cout << errors << endl; else cout << "ok" << endl;
   }
   return 0;
 }
