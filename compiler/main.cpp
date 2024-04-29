@@ -46,41 +46,46 @@ $
 #include <vector>
 #include <utility>
 #include <string>
-
 using namespace std;
 
 #define case_LOW \
-  case 'a': case 'b': case 'c': \
-  case 'd': case 'e': case 'f': \
-  case 'g': case 'h': case 'i': \
-  case 'j': case 'k': case 'l': \
-  case 'm': case 'n': case 'o': \
-  case 'p': case 'q': case 'r': \
-  case 's': case 't': case 'u': \
-  case 'v': case 'w': case 'x': \
-  case 'y': case 'z'
+  case'a':case'b':case'c': \
+  case'd':case'e':case'f': \
+  case'g':case'h':case'i': \
+  case'j':case'k':case'l': \
+  case'm':case'n':case'o': \
+  case'p':case'q':case'r': \
+  case's':case't':case'u': \
+  case'v':case'w':case'x': \
+  case'y':case'z'
 #define case_CAP \
-  case 'A': case 'B': case 'C': \
-  case 'D': case 'E': case 'F': \
-  case 'G': case 'H': case 'I': \
-  case 'J': case 'K': case 'L': \
-  case 'M': case 'N': case 'O': \
-  case 'P': case 'Q': case 'R': \
-  case 'S': case 'T': case 'U': \
-  case 'V': case 'W': case 'X': \
-  case 'Y': case 'Z'
+  case'A':case'B':case'C': \
+  case'D':case'E':case'F': \
+  case'G':case'H':case'I': \
+  case'J':case'K':case'L': \
+  case'M':case'N':case'O': \
+  case'P':case'Q':case'R': \
+  case'S':case'T':case'U': \
+  case'V':case'W':case'X': \
+  case'Y':case'Z'
 #define case_BIN \
-  case '0': case '1'
+  case'0':case'1'
 #define case_OCT \
-  case_BIN: case '2': case '3': \
-  case '4': case '5': case '6': \
+  case_BIN:case'2':case'3': \
+  case '4':case'5':case'6': \
   case '7'
 #define case_DEC \
-  case_OCT: case '8': case '9'
+  case_OCT:case'8':case'9'
 #define case_HEX \
-  case_DEC: case 'A': case 'B': \
-  case 'C': case 'D': case 'E': \
+  case_DEC:case'A':case'B': \
+  case 'C':case'D':case'E': \
   case 'F'
+#define case_NUM \
+  case'1':case'2':case'3': \
+  case'4':case'5':case'6': \
+  case'7':case'8':case'9'
+
+
 
 struct Symbol {
   string*  sym;
@@ -97,7 +102,7 @@ enum State {
   LINE, COML, COMB, COMA, COMP,
   COMQ, PARL, SYMB, EXPR, BSPC,
   COLN, DEFS, ASSS, PLUS, AASS,
-  MINS, SASS, MAPS
+  MINS, SASS, MAPS, DECN
 };
 vector<State> state = {};
 int line_cnt = 0, expr_nest = 0,
@@ -148,25 +153,32 @@ void parse_line(string line) {
     }
   };
 
-  auto eval_indnt = [&](char chr) {
-    buf_spc.clear(); state.pop_back();
+  auto eval_num = [&](char chr,int base) {
+    int num = 0;
+    switch (base) {
+      case 10:
+        for (char c : buf_num) num = num * 10 + (c - 48);
+        break;
+    }
+    cout << "num is: " << num << "\n";
+    buf_num.clear();
     switch (chr) {
-      case '#' : state.push_back(COML); break;
-      case '_' :
-      case_LOW : buf_sym.push_back(chr); 
-        state.push_back(SYMB); break;
-      case '(' : state.push_back(PARL);
+      case ' ' : state.back() = BSPC; break;
+      default  : state.pop_back(); break;
     }
   };
   
   state.push_back(LINE); line_cnt += 1;
-
   for (char chr  : line) {
     switch (state.back()) {
 
       case LINE  : switch (chr) {
         case ' ' : buf_spc.push_back(chr); break;
-        default  : eval_indnt(chr);
+        case '#' : buf_spc.clear(); state.back() = COML; break;
+        case_NUM : buf_num.push_back(chr); state.back() = DECN; break;
+        case '_' :
+        case_LOW : buf_spc.clear(); buf_sym.push_back(chr); state.back() = SYMB; break;
+        case '(' : buf_spc.clear(); state.back() = PARL; break;
       } break;
       
       case COML  : break;
@@ -210,6 +222,7 @@ void parse_line(string line) {
         case '+' : state.back() = PLUS; break;
         case '-' : state.back() = MINS; break;
         case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+        case_DEC : buf_num.push_back(chr); state.back() = DECN; break;
       } break;
 
       case COLN  : switch (chr) {
@@ -257,6 +270,11 @@ void parse_line(string line) {
         case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
       } break;
 
+      case DECN  : switch (chr) {
+        default  : eval_num(chr,10); break;
+        case_DEC : buf_num.push_back(chr); break;
+      }
+
       default    : break;
     }
     cout << "(" << chr << " " << state.back() << ") ";
@@ -264,6 +282,7 @@ void parse_line(string line) {
   cout << "\n";
 
   switch (state.back()) {
+    case LINE: state.pop_back(); break;
     case COML: state.pop_back(); break;
     case COMB: break;
     case COMA: state.back() = COMB; break;
@@ -271,6 +290,7 @@ void parse_line(string line) {
     case COMQ: state.pop_back(); break;
     case BSPC: state.pop_back(); break;
     case SYMB: eval_sym('\n'); break;
+    case DECN: eval_num('\n',10); break;
   }
 }
 
