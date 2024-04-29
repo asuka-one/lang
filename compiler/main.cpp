@@ -24,23 +24,6 @@ x or y
 
 */
 
-/*
-
-$
-| |=
-& &=
-! !=
-?
-~ ~ ~=
-=
-* *=
-/ /=
-. .. .= ...
-< <=
->> > >=
-
-*/
-
 #include <unordered_map>
 #include <iostream>
 #include <vector>
@@ -84,7 +67,12 @@ using namespace std;
   case'1':case'2':case'3': \
   case'4':case'5':case'6': \
   case'7':case'8':case'9'
-
+#define case_OPR \
+  case':':case'=':case'+': \
+  case'-':case'*':case'/': \
+  case'<':case'>':case'.': \
+  case'&':case'|':case'~': \
+  case'!':case'?':case'$'
 
 
 struct Symbol {
@@ -96,20 +84,42 @@ struct Symbol {
   }
 };
 
+enum ObjType { NUMBER };
+struct Object {
+  ObjType type;
+  long long value;
+};
+
+enum ExprType { SNUMB, SSYMB, BIOPR };
+enum Operator { PLUSS, MINUS };
+
+struct Expr {
+  ExprType type;
+  Operator oper;
+  int prec;
+  vector<Object*> objs;
+};
+Expr* expr; 
+
 string outpath = "out";
 bool run = true;
+
 enum State {
   LINE, COML, COMB, COMA, COMP,
   COMQ, PARL, SYMB, EXPR, BSPC,
-  COLN, DEFS, ASSS, PLUS, AASS,
-  MINS, SASS, MAPS, DECN
+  OPER, DECN
 };
 vector<State> state = {};
-int line_cnt = 0, expr_nest = 0,
-  comm_nest = 0, indt_nest = 0;
+
+enum Expect { EXP, OPR, OBJ };
+Expect expect = EXP;
+
+int line_cnt  = 0, expr_nest = 0,
+    comm_nest = 0, indt_nest = 0;
 vector<int> indnt = {0};
 string buf_str = "", buf_sym = "",
-  buf_num = "", buf_spc = "";
+       buf_num = "", buf_spc = "",
+       buf_opr = "";
 
 vector<Symbol*> symtbl = {};
 
@@ -131,14 +141,14 @@ void parse_line(string line) {
       {"__line",23}
     };
     switch (kwds[buf_sym]) {
-      case 20: run = false; break;
-      case 21: cout << "("; for (int s : state)
+      case 20  : run = false; break;
+      case 21  : cout << "("; for (int s : state)
         cout << s << " "; cout << "\b)\n"; break;
-      case 22: cout << "("; for (Symbol* s : symtbl)
+      case 22  : cout << "("; for (Symbol* s : symtbl)
         cout << *s->sym << ":" << *s->type <<
         "; "; cout << "\b)\n"; break;
-      case 23: cout << line_cnt << "\n"; break;
-      default:
+      case 23  : cout << line_cnt << "\n"; break;
+      default  :
         symtbl.push_back(
           new Symbol(new string(buf_sym),new string("auto"))
         ); break;
@@ -146,25 +156,58 @@ void parse_line(string line) {
     buf_sym.clear();
     switch (chr) {
       case ' ' : state.back() = BSPC; break;
-      case ':' : state.back() = COLN; break;
-      case '+' : state.back() = PLUS; break;
-      case '-' : state.back() = MINS; break;
+      case_OPR : buf_opr.push_back(chr); state.back() = OPER; break;
       default  : state.pop_back(); break; 
     }
   };
 
-  auto eval_num = [&](char chr,int base) {
-    int num = 0;
-    switch (base) {
-      case 10:
-        for (char c : buf_num) num = num * 10 + (c - 48);
-        break;
+  auto eval_opr = [&](char chr) {
+    static unordered_map<string,int> oprs = {
+      {">>", 1},{"->", 2},{"+",  3},{"-",  4},
+      {"~",  5},{"?",  6},{"!",  7},{"$",  8},
+      {"&",  9},{"|", 10},{"*", 11},{"/", 12},
+      {":-",13},{":=",14},{"+=",15},{"-=",16},
+      {"*=",17},{"/=",18},{"&=",19},{"~=",20},
+      {"|=",21},{"<", 22},{">", 23},{"<=",24},
+      {">=",25},{"=", 26},{"!=",27}
+    };
+    switch (oprs[buf_opr]) {
+      case  3  : switch (expect) {
+        case OPR :
+          expr->type = BIOPR;
+          expr->oper = PLUSS;
+          expect = OBJ; break;
+      } break;
     }
-    cout << "num is: " << num << "\n";
-    buf_num.clear();
+    buf_opr.clear();
+    switch (chr) {
+      case ' ' : state.back() = BSPC; break;
+      case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      default  : state.pop_back(); break;
+    }
+  };
+
+  auto eval_num = [&](char chr,int base) {
+    int value = 0;
+    switch (base) {
+      case 10: for (char c : buf_num)
+        (value *= 10) += c - 48; break;
+    } buf_num.clear();
     switch (chr) {
       case ' ' : state.back() = BSPC; break;
       default  : state.pop_back(); break;
+    }
+    switch (expect) {
+      case EXP :
+        expr = new Expr;
+        expr->type = SNUMB;
+        expr->objs.push_back( new Object {NUMBER,value} );
+        expect = OPR; break;
+      case OBJ : switch (expr->oper) {
+        case PLUSS:
+          cout << "result: " << expr->objs[0]->value + value << "\n";
+          break;
+      } break;
     }
   };
   
@@ -218,56 +261,14 @@ void parse_line(string line) {
       
       case BSPC  : switch (chr) {
         case ' ' : break;
-        case ':' : state.back() = COLN; break;
-        case '+' : state.back() = PLUS; break;
-        case '-' : state.back() = MINS; break;
+        case_OPR : buf_opr.push_back(chr); state.back() = OPER; break;
         case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
         case_DEC : buf_num.push_back(chr); state.back() = DECN; break;
       } break;
 
-      case COLN  : switch (chr) {
-        case '-' : state.back() = DEFS; break;
-        case '=' : state.back() = ASSS; break;
-        case ' ' : state.back() = BSPC; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      } break;
-
-      case DEFS  : switch (chr) {
-        case ' ' : state.back() = BSPC; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      } break;
-
-      case ASSS  : switch (chr) {
-        case ' ' : state.back() = BSPC; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      } break;
-
-      case PLUS  : switch (chr) {
-        case ' ' : state.back() = BSPC; break;
-        case '=' : state.back() = AASS; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      } break;
-
-      case AASS  : switch (chr) {
-        case ' ' : state.back() = BSPC; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      } break;
-
-      case MINS  : switch (chr) {
-        case ' ' : state.back() = BSPC; break;
-        case '=' : state.back() = SASS; break;
-        case '>' : state.back() = MAPS; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      } break;
-
-      case SASS  : switch (chr) {
-        case ' ' : state.back() = BSPC; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      } break;
-
-      case MAPS  : switch (chr) {
-        case ' ' : state.back() = BSPC; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+      case OPER  : switch (chr) {
+        default  : eval_opr(chr); break;
+        case_OPR : buf_opr.push_back(chr); break;
       } break;
 
       case DECN  : switch (chr) {
@@ -277,7 +278,7 @@ void parse_line(string line) {
 
       default    : break;
     }
-    cout << "(" << chr << " " << state.back() << ") ";
+    cout << "(" << chr << " " << state.back() << " " << expect << ") ";
   }
   cout << "\n";
 
