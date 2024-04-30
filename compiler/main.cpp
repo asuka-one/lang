@@ -112,64 +112,66 @@ string buf_str = "", buf_sym = "",
        buf_num = "", buf_spc = "",
        buf_opr = "";
 
+void eval_sym (char chr) {    
+  switch (kwds[buf_sym]) {
+    case 20  : run = false; break;
+    case 23  : cout << line_cnt << "\n"; break;
+    default  : break;
+  } buf_sym.clear();
+  switch (chr) {
+    case ' ' : state.back() = BSPC; break;
+    case_OPR : buf_opr.push_back(chr); state.back() = OPER; break;
+    default  : state.pop_back(); break; 
+  }
+}
 
+void eval_opr (char chr) {    
+  if (oprs[buf_opr]) switch (expr->type) {
+    case NUMBER:
+      expr = new Object {0,{expr},0,EXPR,
+        oprs[buf_opr],preces[oprs[buf_opr]]};
+      expr->objs[0]->sup = expr; break;
+    case EXPR  :
+      expr = new Object {0,{expr},0,EXPR,
+        oprs[buf_opr],preces[oprs[buf_opr]]};
+      expr->objs[0]->sup = expr; break; 
+  } buf_opr.clear();
+  switch (chr) {
+    case ' ' : state.back() = BSPC; break;
+    case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
+    default  : state.pop_back(); break;
+  }
+}
 
-void parse_line(string line) {
-  
-  auto eval_sym = [&](char chr) {    
-    switch (kwds[buf_sym]) {
-      case 20  : run = false; break;
-      case 23  : cout << line_cnt << "\n"; break;
-      default  : break;
-    } buf_sym.clear();
-    switch (chr) {
-      case ' ' : state.back() = BSPC; break;
-      case_OPR : buf_opr.push_back(chr); state.back() = OPER; break;
-      default  : state.pop_back(); break; 
-    }
-  };
-
-  auto eval_opr = [&](char chr) {    
-    if (oprs[buf_opr]) switch (expr->type) {
-      case NUMBER:
-        expr = new Object {0,{expr},0,EXPR,
-          oprs[buf_opr],preces[oprs[buf_opr]]};
-        expr->objs[0]->sup = expr; break;
-    } buf_opr.clear();
-    switch (chr) {
-      case ' ' : state.back() = BSPC; break;
-      case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-      default  : state.pop_back(); break;
-    }
-  };
-
-  auto eval_exp = [&]() {
-    switch (expr->type) {
-      case EXPR: switch (expr->oper) {
-        case PLUS:
-          cout << expr->objs[0]->value + expr->objs[1]->value << "\n";
-          break;
-      } break;        
-    }
-  };
-
-  auto eval_num = [&](char chr) {
-    long long value = 0;
-    switch (state.back()) {
-      case DECN: for (char c : buf_num)
-        (value *= 10) += c - 48; break;
-    } buf_num.clear();
-    switch (chr) {
-      case ' ' : state.back() = BSPC; break;
-      default  : state.pop_back(); break;
-    } if (!expr) expr = new Object {0,{},value,NUMBER,NONE,PNONE};
-    else if (expr->type == EXPR) switch (expr->oper) {
+long long eval_exp (Object* obj) {
+  switch (obj->type) {
+    case EXPR: switch (obj->oper) {
       case PLUS:
-        expr->objs.push_back( new Object {0,{},value,NUMBER,NONE,PNONE} );
-        eval_exp(); break;
+        return eval_exp(obj->objs[0]) + eval_exp(obj->objs[1]);
     }
-  };
-  
+    case NUMBER: return obj->value;
+  }
+}
+
+void eval_num (char chr) {
+  long long value = 0;
+  switch (state.back()) {
+    case DECN: for (char c : buf_num)
+      (value *= 10) += c - 48; break;
+  } buf_num.clear();
+  switch (chr) {
+    case ' ' : state.back() = BSPC; break;
+    default  : state.pop_back(); break;
+  } if (!expr) expr = new Object {0,{},value,NUMBER,NONE,PNONE};
+  else if (expr->type == EXPR) switch (expr->oper) {
+    case PLUS:
+      expr->objs.push_back( new Object
+        {0,{},value,NUMBER,NONE,PNONE} );
+      break;
+  }
+}
+
+void parse_line(string line) { 
   state.push_back(LINE); line_cnt += 1;
   for (char chr  : line) {
     switch (state.back()) {
@@ -250,6 +252,7 @@ void parse_line(string line) {
     case SYMB: eval_sym('\n'); break;
     case DECN: eval_num('\n'); break;
   }
+  cout << eval_exp(expr) << "\n";
 }
 
 vector<string>* parse_args(int argc, char** argv) {
