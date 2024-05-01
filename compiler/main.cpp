@@ -99,11 +99,10 @@ string outpath = "out";
 bool run = true;
 
 enum State {
-  LINE, COML, COMB, COMA, COMP,
-  COMQ, PARL, SYMB, BSPC,
+  LINE, COML, SYMB, BSPC,
   OPER, DECN
 };
-vector<State> state = {};
+State state;
 
 int line_cnt  = 0, expr_nest = 0,
     comm_nest = 0, indt_nest = 0;
@@ -119,9 +118,9 @@ void eval_sym (char chr) {
     default  : break;
   } buf_sym.clear();
   switch (chr) {
-    case ' ' : state.back() = BSPC; break;
-    case_OPR : buf_opr.push_back(chr); state.back() = OPER; break;
-    default  : state.pop_back(); break; 
+    case ' ' : state = BSPC; break;
+    case_OPR : buf_opr.push_back(chr); state = OPER; break;
+    default  : break; 
   }
 }
 
@@ -137,9 +136,9 @@ void eval_opr (char chr) {
       expr->objs[0]->sup = expr; break; 
   } buf_opr.clear();
   switch (chr) {
-    case ' ' : state.back() = BSPC; break;
-    case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-    default  : state.pop_back(); break;
+    case ' ' : state = BSPC; break;
+    case_LOW : buf_sym.push_back(chr); state = SYMB; break;
+    default  : break;
   }
 }
 
@@ -155,13 +154,13 @@ long long eval_exp (Object* obj) {
 
 void eval_num (char chr) {
   long long value = 0;
-  switch (state.back()) {
+  switch (state) {
     case DECN: for (char c : buf_num)
       (value *= 10) += c - 48; break;
   } buf_num.clear();
   switch (chr) {
-    case ' ' : state.back() = BSPC; break;
-    default  : state.pop_back(); break;
+    case ' ' : state = BSPC; break;
+    default  : break;
   } if (!expr) expr = new Object {0,{},value,NUMBER,NONE,PNONE};
   else if (expr->type == EXPR) switch (expr->oper) {
     case PLUS:
@@ -172,47 +171,19 @@ void eval_num (char chr) {
 }
 
 void parse_line(string line) { 
-  state.push_back(LINE); line_cnt += 1;
+  state = LINE; line_cnt += 1;
   for (char chr  : line) {
-    switch (state.back()) {
+    switch (state) {
 
       case LINE  : switch (chr) {
         case ' ' : buf_spc.push_back(chr); break;
-        case '#' : buf_spc.clear(); state.back() = COML; break;
-        case_NUM : buf_num.push_back(chr); state.back() = DECN; break;
+        case '#' : buf_spc.clear(); state = COML; break;
+        case_NUM : buf_spc.clear(); buf_num.push_back(chr); state = DECN; break;
         case '_' :
-        case_LOW : buf_spc.clear(); buf_sym.push_back(chr); state.back() = SYMB; break;
-        case '(' : buf_spc.clear(); state.back() = PARL; break;
+        case_LOW : buf_spc.clear(); buf_sym.push_back(chr); state = SYMB; break;
       } break;
       
       case COML  : break;
-
-      case COMB  : switch (chr) {
-        case '#' : state.back() = COMA; break;
-        case '(' : state.back() = COMP; break;
-        case '\"': state.push_back(COMQ); break;
-        default  : break;
-      } break;
-
-      case COMA  : switch (chr) {
-        case ')' : state.pop_back(); break;
-        default  : state.back() = COMB;
-      } break;
-
-      case COMP  : switch (chr) {
-        case '#' : state.push_back(COMB); break;
-        default  : state.back() = COMB;
-      } break;
-
-      case COMQ  : switch (chr) {
-        case '\"': state.pop_back(); break;
-        default  : break;
-      } break;
-
-      case PARL  : switch (chr) {
-        case '#' : state.back() = COMB; break;
-        default  : break; // expr_nest += 1; state.push_back(EXPR);
-      } break;
 
       case SYMB  : switch (chr) {
         default  : eval_sym(chr); break;
@@ -222,9 +193,9 @@ void parse_line(string line) {
       
       case BSPC  : switch (chr) {
         case ' ' : break;
-        case_OPR : buf_opr.push_back(chr); state.back() = OPER; break;
-        case_LOW : buf_sym.push_back(chr); state.back() = SYMB; break;
-        case_DEC : buf_num.push_back(chr); state.back() = DECN; break;
+        case_OPR : buf_opr.push_back(chr); state = OPER; break;
+        case_LOW : buf_sym.push_back(chr); state = SYMB; break;
+        case_DEC : buf_num.push_back(chr); state = DECN; break;
       } break;
 
       case OPER  : switch (chr) {
@@ -241,14 +212,10 @@ void parse_line(string line) {
     }
   }
 
-  switch (state.back()) {
-    case LINE: state.pop_back(); break;
-    case COML: state.pop_back(); break;
-    case COMB: break;
-    case COMA: state.back() = COMB; break;
-    case COMP: state.back() = COMB; break;
-    case COMQ: state.pop_back(); break;
-    case BSPC: state.pop_back(); break;
+  switch (state) {
+    case LINE:
+    case COML:
+    case BSPC: break;
     case SYMB: eval_sym('\n'); break;
     case DECN: eval_num('\n'); break;
   }
