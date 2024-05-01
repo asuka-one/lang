@@ -3,7 +3,7 @@
 
 some_function x :- x * x
 
-print $(some_function 5)
+print (some_function 5)
 
 hello :- "hello\nworld\n"
 
@@ -14,10 +14,10 @@ hello :- "hello\nworld\n"
 #)
 
 main :-
-  use std env
+  Use 'env'
   args :- env args
 
-  for arg in args do
+  For arg In args Do
     print "$arg some text"
     
   input :- scan Int

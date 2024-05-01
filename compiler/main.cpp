@@ -57,31 +57,32 @@ enum Prec {
   ARIAS, CONCA, ASIGN, LOREL,
   COMPA
 };
-enum Oper { NONE, PLUS, MINUS };
+enum Oper { NONE, PLUS, MINUS, MULT, DIVD };
  
 unordered_map<string, Oper> oprs = {
   {">>",NONE},{"->",NONE},{"+", PLUS},{"-",MINUS},
   {"~", NONE},{"?", NONE},{"!", NONE},{"$", NONE},
-  {"&", NONE},{"|", NONE},{"*", NONE},{"/", NONE},
+  {"&", NONE},{"|", NONE},{"*", MULT},{"/", DIVD},
   {":-",NONE},{":=",NONE},{"+=",NONE},{"-=",NONE},
   {"*=",NONE},{"/=",NONE},{"&=",NONE},{"~=",NONE},
   {"|=",NONE},{"<", NONE},{">", NONE},{"<=",NONE},
   {">=",NONE},{"=", NONE},{"!=",NONE}
 };
 unordered_map<Oper,Prec> preces = {
-  {PLUS,ARIAS},{MINUS,ARIAS}
+  {PLUS,ARIAS},{MINUS,ARIAS},
+  {MULT,ARIMD},{DIVD,ARIMD}
 };
 unordered_map<string,int> kwds = {
-  {"and",    1},{"break",   2},
-  {"do",     3},{"echo",    4},
-  {"else",   5},{"for",     6},
-  {"if",     7},{"in",      8},
-  {"is",     9},{"matches",10},
-  {"new",   11},{"next",   12},
-  {"not",   13},{"or",     14},
-  {"raw",   15},{"redo",   16},
-  {"return",17},{"then",   18},
-  {"use",   19},{"__exit", 20},
+  {"And",    1},{"Break",   2},
+  {"Do",     3},{"Echo",    4},
+  {"Else",   5},{"For",     6},
+  {"If",     7},{"In",      8},
+  {"Is",     9},{"Matches",10},
+  {"New",   11},{"Next",   12},
+  {"Not",   13},{"Or",     14},
+  {"Raw",   15},{"Redo",   16},
+  {"Return",17},{"Then",   18},
+  {"Use",   19},{"__exit", 20},
   {"__line",23}
 }; 
 
@@ -100,7 +101,8 @@ bool run = true;
 
 enum State {
   LINE, COML, SYMB, BSPC,
-  OPER, DECN
+  OPER, ZERO, BINN, OCTN,
+  DECN, HEXN
 };
 State state;
 
@@ -142,21 +144,44 @@ void eval_opr (char chr) {
   }
 }
 
-long long eval_exp (Object* obj) {
+long long eval_exp (Object*& obj) {
+  long long result = 0;
   switch (obj->type) {
     case EXPR: switch (obj->oper) {
       case PLUS:
-        return eval_exp(obj->objs[0]) + eval_exp(obj->objs[1]);
-    }
-    case NUMBER: return obj->value;
+        result = eval_exp(obj->objs[0]) + eval_exp(obj->objs[1]);
+        delete obj->objs[0]; delete obj->objs[1]; obj->objs.shrink_to_fit();
+        break;
+      case MINUS:
+        result = eval_exp(obj->objs[0]) - eval_exp(obj->objs[1]);
+        delete obj->objs[0]; delete obj->objs[1]; obj->objs.shrink_to_fit(); 
+        break;
+      case MULT:
+        result = eval_exp(obj->objs[0]) * eval_exp(obj->objs[1]);
+        delete obj->objs[0]; delete obj->objs[1]; obj->objs.shrink_to_fit();
+        break;
+      case DIVD:
+        result = eval_exp(obj->objs[0]) / eval_exp(obj->objs[1]);
+        delete obj->objs[0]; delete obj->objs[1]; obj->objs.shrink_to_fit();
+        break;
+    } break;
+    case NUMBER: result = obj->value;
   }
+  obj = 0;
+  return result;
 }
 
 void eval_num (char chr) {
   long long value = 0;
   switch (state) {
+    case BINN: for (char c : buf_num)
+      (value *= 2) += c - 48; break;
+    case OCTN: for (char c : buf_num)
+      (value *= 8) += c - 48; break;
     case DECN: for (char c : buf_num)
       (value *= 10) += c - 48; break;
+    case HEXN: for (char c : buf_num)
+      (value *= 16) += (c > 57) ? c - 65 : c - 48; break;
   } buf_num.clear();
   switch (chr) {
     case ' ' : state = BSPC; break;
@@ -167,6 +192,18 @@ void eval_num (char chr) {
       expr->objs.push_back( new Object
         {0,{},value,NUMBER,NONE,PNONE} );
       break;
+    case MINUS:
+      expr->objs.push_back( new Object
+        {0,{},value,NUMBER,NONE,PNONE} );
+      break;
+    case MULT:
+      expr->objs.push_back( new Object
+        {0,{},value,NUMBER,NONE,PNONE} );
+      break;
+    case DIVD:
+      expr->objs.push_back( new Object
+        {0,{},value,NUMBER,NONE,PNONE} );
+      break;  
   }
 }
 
@@ -178,6 +215,7 @@ void parse_line(string line) {
       case LINE  : switch (chr) {
         case ' ' : buf_spc.push_back(chr); break;
         case '#' : buf_spc.clear(); state = COML; break;
+        case '0' : state = ZERO; break;
         case_NUM : buf_spc.clear(); buf_num.push_back(chr); state = DECN; break;
         case '_' :
         case_LOW : buf_spc.clear(); buf_sym.push_back(chr); state = SYMB; break;
@@ -195,7 +233,7 @@ void parse_line(string line) {
         case ' ' : break;
         case_OPR : buf_opr.push_back(chr); state = OPER; break;
         case_LOW : buf_sym.push_back(chr); state = SYMB; break;
-        case_DEC : buf_num.push_back(chr); state = DECN; break;
+        case_NUM : buf_num.push_back(chr); state = DECN; break;
       } break;
 
       case OPER  : switch (chr) {
@@ -203,10 +241,31 @@ void parse_line(string line) {
         case_OPR : buf_opr.push_back(chr); break;
       } break;
 
+      case ZERO  : switch (chr) {
+        case 'b' : state = BINN; break;
+        case 'o' : state = OCTN; break;
+        case 'h' : state = HEXN; break;
+      } break;
+
+      case BINN  : switch (chr) {
+        default  : eval_num(chr); break;
+        case_BIN : buf_num.push_back(chr); break;
+      } break;
+
+      case OCTN  : switch (chr) {
+        default  : eval_num(chr); break;
+        case_OCT : buf_num.push_back(chr); break;
+      } break;
+
       case DECN  : switch (chr) {
         default  : eval_num(chr); break;
         case_DEC : buf_num.push_back(chr); break;
-      }
+      } break; 
+
+      case HEXN  : switch (chr) {
+        default  : eval_num(chr); break;
+        case_HEX : buf_num.push_back(chr); break;
+      } break;
 
       default    : break;
     }
@@ -219,7 +278,7 @@ void parse_line(string line) {
     case SYMB: eval_sym('\n'); break;
     case DECN: eval_num('\n'); break;
   }
-  cout << eval_exp(expr) << "\n";
+  if (expr) cout << eval_exp(expr) << "\n";
 }
 
 vector<string>* parse_args(int argc, char** argv) {

@@ -1,27 +1,21 @@
 #!/usr/local/bin/lang
 
-for use env; arg in env args do
+FOR USE 'env'; arg IN env args DO
   print $arg
-else
+ELSE
   print "thats all!"
 
 apple :- scan Str
-if apple = "apple" then
+IF apple = "apple" THEN
   print "you know what im thinkin about!"
-else
+ELSE
   print "thats not an apple"
 
 function x y z : Int -> Int -> Int -> Int :-
-  if y in x..z then x + y * z - 100 / 2
-  else
+  IF y in x..z THEN x + y * z - 100 / 2
+  ELSE
     print "those args are not in order: $x, $y, $z"; x + y + z.
 
 # some comment to ignore
-(#
-  (# (# #0 we always ignoe all them comments
-    #)
-  even if we should not
-#)
-  we always do that
-#) print "thats not a comment" # to the rest of the line
+print "thats not a comment"
 

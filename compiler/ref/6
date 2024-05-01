@@ -3,6 +3,6 @@
 x :- 0
 X :- 5
 
-for X do
+FOR X DO
   x := (x + 8) / 2
   print x

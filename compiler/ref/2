@@ -1,22 +1,23 @@
 #!/usr/local/bin/lang
+
 x :- scan Int
-print if x < 10 then
-  "x is too small!" else "x is $x"
+print If x < 10 Then
+  "x is too small!" Else "x is $x"
 
 low :- -11
 upp :- 0h12_345_6093_4_782_091
 
-for x in low..upp do
-  if x = 5 then
+For x In low..upp Do
+  If x = 5 Then
     print "5 spoted"
-    break
-  if x = 6 then
-    print "unreacheble"
-  print $x
+    Break
+  If x = 6 Then
+    print "unreachable"
+  print x
 
 A :- (x: Int, y: Nat)
 
-pair :- new A -15, 66
+pair :- New A -15, 66
 
-print $pair
+print pair
 

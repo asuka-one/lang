@@ -16,6 +16,7 @@ function x y z : Int -> Int -> Int -> Int :- x + y + z
 print (_ x Y Z :- x + Y * Z) 1 2 3
 
 function x y z :-
+  Use 'asm'
   lala:
   add rdi, rsi
   ret
