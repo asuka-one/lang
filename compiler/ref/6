@@ -1,8 +1,0 @@
-#!/usr/local/bin/lang
-
-x :- 0
-X :- 5
-
-FOR X DO
-  x := (x + 8) / 2
-  print x
