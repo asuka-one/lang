@@ -8,7 +8,7 @@ using namespace std;
 
 /*
   TODO:
-  - add mul and div operators
+  + add mul and div operators
     (implies creating priority system)
   - add floating point literals
     (implies creating type system)
@@ -78,20 +78,16 @@ enum {
   SYMBOL,
   NUMBER,
   PLUS,
-  MINUS
+  MINUS,
+  STAR,
+  SLASH
 } state = SPACE;
-enum {
-  START,
-  OBJECT,
-  INCOMPL,
-  COMPL
-} meta_state = START;
 enum ExprTag {
   E_UND,
   E_OBJ,
   E_OPER
 };
-enum ExprType {
+enum ValueType {
   T_UND,
   T_I64,
   T_F64
@@ -99,28 +95,36 @@ enum ExprType {
 enum ExprOper {
   O_UND,
   O_ADD,
-  O_SUB
+  O_SUB,
+  O_MUL,
+  O_DIV
+};
+enum ExprPrec {
+  ARILOW,
+  ARIHIGH
+};
+
+struct Value {
+  ValueType type;
+  union {
+    signed long i64;
+  };
 };
 
 struct Expr {
   ExprTag tag;
-  union {
-    ExprType type;
+  struct {
     ExprOper oper;
+    ExprPrec prec;
   };
   Expr* par;
   Expr* op0;
   Expr* op1;
-  union {
-    signed long i64;
-    double f64;
-  };
+  Value val;
 };
 
 Expr* root;
 Expr* last;
-
-signed long r0;
 
 string line;
 string buffer;
@@ -128,13 +132,15 @@ string buffer;
 int line_count;
 
 void parse ();
-void compile (Expr*&);
+Value compile (Expr*&);
 void add (Expr*);
 
 void wrap_symbol ();
 void wrap_number ();
 void wrap_plus ();
 void wrap_minus ();
+void wrap_star ();
+void wrap_slash ();
 
 int main (int argc, char** argv)
 {
@@ -252,6 +258,12 @@ void parse ()
           case '-':
             state = MINUS;
             break;
+          case '*':
+            state = STAR;
+            break;
+          case '/':
+            state = SLASH;
+            break;
           default:
             break;
         }
@@ -341,6 +353,48 @@ void parse ()
             break;
         }
         break;
+      case STAR:
+        switch (chr) {
+          default:
+            wrap_star ();
+            switch (chr) {
+              case ' ':
+                state = SPACE;
+                break;
+              case '_':
+              case_LOWER:
+                buffer.push_back (chr);
+                state = SYMBOL;
+                break;
+              case_DECIMAL:
+                buffer.push_back (chr);
+                state = NUMBER;
+                break;
+            }
+            break;
+        }
+        break;
+      case SLASH:
+        switch (chr) {
+          default:
+            wrap_slash ();
+            switch (chr) {
+              case ' ':
+                state = SPACE;
+                break;
+              case '_':
+              case_LOWER:
+                buffer.push_back (chr);
+                state = SYMBOL;
+                break;
+              case_DECIMAL:
+                buffer.push_back (chr);
+                state = NUMBER;
+                break;
+            }
+            break;
+        }
+        break;
     }
   }
   line_count++;
@@ -357,76 +411,85 @@ void parse ()
       break; 
   }
   if (root) {
-    if (root->tag == E_OPER) {
-      compile (root);
-    }
+    Value val = compile (root);
     cout << "  _ : ";
-    switch (root->type) {
+    switch (val.type) {
       case T_I64:
-        cout << "Int64 = " << root->i64 << '\n';
+        cout << "Int64 = " << val.i64 << '\n';
         break;
     }
-    delete root;
-    root = 0;
-    r0 = 0;
-    meta_state = START;
   }
 }
 
-void compile (Expr*& expr)
+Value compile (Expr*& expr)
 {
-  signed long r1;
-  if (!expr) {
-    return;
-  }
+  Value tmp;
   switch (expr->tag) {
     case E_OBJ:
-      r0 = expr->i64;
-      delete expr;
-      expr = 0;
+      tmp = expr->val;
       break;
     case E_OPER:
       switch (expr->oper) {
         case O_ADD:
-          compile(expr->op0);
-          r1 = r0;
-          compile(expr->op1);
-          r0 = r1 + r0;
+          tmp = {T_I64, compile(expr->op0).i64 +
+            compile(expr->op1).i64};
           break;
         case O_SUB:
-          compile(expr->op0);
-          r1 = r0;
-          compile(expr->op1);
-          r0 = r1 - r0;
+          tmp = {T_I64, compile(expr->op0).i64 -
+            compile(expr->op1).i64};
+          break;
+        case O_MUL:
+          tmp = {T_I64, compile(expr->op0).i64 *
+            compile(expr->op1).i64};
+          break;
+        case O_DIV:
+          tmp = {T_I64, compile(expr->op0).i64 /
+            compile(expr->op1).i64};
           break;
       }
-      expr->tag = E_OBJ;
-      expr->type = T_I64;
-      expr->i64 = r0;
       break;
   }
+  delete expr;
+  expr = 0;
+  return tmp;
 }
 
 void add (Expr* expr)
 {
-  switch (meta_state) {
-    case START:
-      root = expr;
-      last = expr;
-      meta_state = OBJECT;
-      break;
-    case OBJECT:
+  if (!root) {
+    root = expr;
+    last = expr;
+    return;
+  }
+  switch (last->tag) {
+    case E_OBJ:
       switch (expr->tag) {
         case E_OPER:
-          root->par = expr;
-          expr->op0 = root;
-          root = expr;
-          last = expr;
+          if (last->par) {
+            if (last->par->prec < expr->prec) {
+              expr->op0 = last->par->op1;
+              last->par->op1 = expr;
+              expr->par = last->par;
+              last = expr;
+            } else if (last->par->prec >= expr->prec) {
+              if (last->par->par) {
+                expr->op0 = last->par->par;
+              } else {
+                expr->op0 = last->par;
+              }
+              root = expr;
+              last = expr;
+            }
+          } else {
+            expr->op0 = last;
+            last->par = expr;
+            root = expr;
+            last = expr;
+          }
           break;
       }
-      meta_state = INCOMPL;
       break;
-    case INCOMPL:
+    case E_OPER:
       switch (expr->tag) {
         case E_OBJ:
           last->op1 = expr;
@@ -434,18 +497,6 @@ void add (Expr* expr)
           last = expr;
           break;
       }
-      meta_state = COMPL;
-      break;
-    case COMPL:
-      switch (expr->tag) {
-        case E_OPER:
-          expr->op0 = last->par;
-          last->par->par = expr;
-          root = expr;
-          last = expr;
-          break;
-      }
-      meta_state = INCOMPL;
       break;
   }
 }
@@ -460,9 +511,9 @@ void wrap_number ()
 {
   Expr* expr = new Expr ();
   expr->tag = E_OBJ;
-  expr->type = T_I64;
+  expr->val.type = T_I64;
   for (char chr : buffer) {
-    (expr->i64 *= 10) += (chr - 48);
+    (expr->val.i64 *= 10) += (chr - 48);
   }
   buffer.clear ();
   add (expr);
@@ -473,6 +524,7 @@ void wrap_plus ()
   Expr* expr = new Expr ();
   expr->tag = E_OPER;
   expr->oper = O_ADD;
+  expr->prec = ARILOW;
   add (expr);
 }
 
@@ -481,6 +533,25 @@ void wrap_minus ()
   Expr* expr = new Expr ();
   expr->tag = E_OPER;
   expr->oper = O_SUB;
+  expr->prec = ARILOW;
+  add (expr);
+}
+
+void wrap_star ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = E_OPER;
+  expr->oper = O_MUL;
+  expr->prec = ARIHIGH;
+  add (expr);
+}
+
+void wrap_slash ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = E_OPER;
+  expr->oper = O_DIV;
+  expr->prec = ARIHIGH;
   add (expr);
 }
 
