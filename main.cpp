@@ -1,7 +1,5 @@
-#include <unistd.h>
 #include <termios.h>
 #include <iostream>
-#include <list>
 #include <string>
 #include <map>
 using namespace std;
@@ -66,14 +64,14 @@ string text_usage = "Usage: comp [options] [files]\n"
   "Options:\n"
   "  -h, --help     Display this text\n"
   "  -v, --version  Display compiler information\n";
-string text_version = "Asuka v0.0.1 - Interactive Incremental Compiler\n";
+string text_version = "Asuka v0.0.0 - Interactive Interpreter\n";
 
 bool to_read_line = true;
 bool to_run = true;
 bool to_print_usage = false;
 bool to_print_version = false;
 
-enum {
+enum class State {
   SPACE,
   SYMBOL,
   NUMBER,
@@ -81,45 +79,40 @@ enum {
   MINUS,
   STAR,
   SLASH
-} state = SPACE;
-enum ExprTag {
-  E_UND,
-  E_OBJ,
-  E_OPER
 };
-enum ValueType {
-  T_UND,
-  T_I64,
-  T_F64
+enum class Tag {
+  OBJECT,
+  OPERATOR
 };
-enum ExprOper {
-  O_UND,
-  O_ADD,
-  O_SUB,
-  O_MUL,
-  O_DIV
+enum class Type {
+  I64,
+  F64
 };
-enum ExprPrec {
+enum class Oper {
+  ADD,
+  SUB,
+  MUL,
+  DIV
+};
+enum class Prec {
   ARILOW,
   ARIHIGH
 };
 
 struct Value {
-  ValueType type;
+  Type type;
   union {
     signed long i64;
   };
 };
 
 struct Expr {
-  ExprTag tag;
-  struct {
-    ExprOper oper;
-    ExprPrec prec;
-  };
   Expr* par;
   Expr* op0;
-  Expr* op1;
+  Expr* op1;  
+  Tag tag;
+  Oper oper;
+  Prec prec;
   Value val;
 };
 
@@ -130,6 +123,9 @@ string line;
 string buffer;
 
 int line_count;
+
+State state;
+Value buffer_value;
 
 void parse ();
 Value compile (Expr*&);
@@ -186,40 +182,43 @@ int main (int argc, char** argv)
           cout << '\n';
           break;
         case '\e':
-          if (getchar () == '[') {
-            switch (getchar()) {
-              case 'A':
-                break;
-              case 'B':
-                break;
-              case 'C':
-                if (i < line.length ()) {
-                  i++;
-                  cout << "\e[C";
+          getchar (); // remove next '['
+          switch (getchar()) {
+            case 'A':
+              break;
+            case 'B':
+              break;
+            case 'C':
+              if (i < line.length ()) {
+                i++;
+                cout << "\e[C";
+              }
+              break;
+            case 'D':
+              if (i != 0) {
+                i--;
+                cout << "\e[D";
+              }
+              break;
+            case '3':
+              getchar (); // remove next '~'
+              if (!line.empty () && i < line.length ()) {
+                line.erase (i, 1);
+                cout << "\e[K" << line.substr (i);
+                if (line.length() - i) {
+                  cout << "\e[" << line.length() - i << "D";
                 }
-                break;
-              case 'D':
-                if (i != 0) {
-                  i--;
-                  cout << "\e[D";
-                }
-                break;
-              case '3':
-                getchar (); // remove next '~'
-                if (!line.empty ()) {
-                  line.erase (i, 1);
-                  cout << "\e[K" << line.substr (i) <<
-                    "\e[" + to_string(line.length() - i) + "D";
-                }
-                break;
-            }
+              }
+              break;
           }
           break;
         case '\x7F':
-          if (!line.empty ()) {
-            line.pop_back ();
-            i--;
-            cout << "\b \b";
+          if (!line.empty () && i) {
+            line.erase (--i, 1);
+            cout << "\b\e[K" << line.substr (i);
+            if (line.length() - i) {
+              cout << "\e[" << line.length() - i << "D";
+            }
           }
           break;
         default:
@@ -239,45 +238,46 @@ void parse ()
 {
   for (char chr : line) {
     switch (state) {
-      case SPACE:
+      case State::SPACE:
         switch (chr) {
           case ' ':
             break;
           case_LOWER:
-            state = SYMBOL;
+            state = State::SYMBOL;
             buffer.push_back (chr);
             break;
           case '0':
           case_NUMBER:
-            buffer.push_back (chr);
-            state = NUMBER;
+            buffer_value = { Type::I64,
+              (signed long) (chr & ~48) };
+            state = State::NUMBER;
             break;
           case '+':
-            state = PLUS;
+            state = State::PLUS;
             break;
           case '-':
-            state = MINUS;
+            state = State::MINUS;
             break;
           case '*':
-            state = STAR;
+            state = State::STAR;
             break;
           case '/':
-            state = SLASH;
+            state = State::SLASH;
             break;
           default:
             break;
         }
         break;
-      case SYMBOL:
+      case State::SYMBOL:
         switch (chr) {
           default:
             wrap_symbol ();
             switch (chr) {
               case ' ':
-                state = SPACE;
+                state = State::SPACE;
                 break;
               case '+':
-                state = PLUS;
+                state = State::PLUS;
                 break;
             }
             break;
@@ -288,108 +288,114 @@ void parse ()
             break;
         }
         break;
-      case NUMBER:
+      case State::NUMBER:
         switch (chr) {
           default:
             wrap_number ();
             switch (chr) {
               case ' ':
-                state = SPACE;
+                state = State::SPACE;
                 break;
               case '+':
-                state = PLUS;
+                state = State::PLUS;
                 break;
               case '-':
-                state = MINUS;
+                state = State::MINUS;
+                break;
+              case '*':
+                state = State::STAR;
+                break;
+              case '/':
+                state = State::SLASH;
                 break;
             }
             break;
           case '_':
             break;
           case_DECIMAL:
-            buffer.push_back (chr);
+            (buffer_value.i64 *= 10) += (chr & ~48);
             break;
         }
         break;
-      case PLUS:
+      case State::PLUS:
         switch (chr) {
           default:
             wrap_plus ();
             switch (chr) {
               case ' ':
-                state = SPACE;
+                state = State::SPACE;
                 break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
-                state = SYMBOL;
+                state = State::SYMBOL;
                 break;
               case_DECIMAL:
                 buffer.push_back (chr);
-                state = NUMBER;
+                state = State::NUMBER;
                 break;
             }
             break;
         }
         break;
-      case MINUS:
+      case State::MINUS:
         switch (chr) {
           default:
             wrap_minus ();
             switch (chr) {
               case ' ':
-                state = SPACE;
+                state = State::SPACE;
                 break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
-                state = SYMBOL;
+                state = State::SYMBOL;
                 break;
               case_DECIMAL:
                 buffer.push_back (chr);
-                state = NUMBER;
+                state = State::NUMBER;
                 break;
             }
             break;
         }
         break;
-      case STAR:
+      case State::STAR:
         switch (chr) {
           default:
             wrap_star ();
             switch (chr) {
               case ' ':
-                state = SPACE;
+                state = State::SPACE;
                 break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
-                state = SYMBOL;
+                state = State::SYMBOL;
                 break;
               case_DECIMAL:
                 buffer.push_back (chr);
-                state = NUMBER;
+                state = State::NUMBER;
                 break;
             }
             break;
         }
         break;
-      case SLASH:
+      case State::SLASH:
         switch (chr) {
           default:
             wrap_slash ();
             switch (chr) {
               case ' ':
-                state = SPACE;
+                state = State::SPACE;
                 break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
-                state = SYMBOL;
+                state = State::SYMBOL;
                 break;
               case_DECIMAL:
                 buffer.push_back (chr);
-                state = NUMBER;
+                state = State::NUMBER;
                 break;
             }
             break;
@@ -399,22 +405,22 @@ void parse ()
   }
   line_count++;
   switch (state) {
-    case SPACE:
+    case State::SPACE:
       break;
-    case SYMBOL:
+    case State::SYMBOL:
       wrap_symbol ();
-      state = SPACE;
+      state = State::SPACE;
       break;
-    case NUMBER:
+    case State::NUMBER:
       wrap_number ();
-      state = SPACE;
+      state = State::SPACE;
       break; 
   }
   if (root) {
     Value val = compile (root);
     cout << "  _ : ";
     switch (val.type) {
-      case T_I64:
+      case Type::I64:
         cout << "Int64 = " << val.i64 << '\n';
         break;
     }
@@ -425,26 +431,26 @@ Value compile (Expr*& expr)
 {
   Value tmp;
   switch (expr->tag) {
-    case E_OBJ:
+    case Tag::OBJECT:
       tmp = expr->val;
       break;
-    case E_OPER:
+    case Tag::OPERATOR:
       switch (expr->oper) {
-        case O_ADD:
-          tmp = {T_I64, compile(expr->op0).i64 +
-            compile(expr->op1).i64};
+        case Oper::ADD:
+          tmp = {Type::I64, compile(expr->op0).i64
+            + compile(expr->op1).i64};
           break;
-        case O_SUB:
-          tmp = {T_I64, compile(expr->op0).i64 -
-            compile(expr->op1).i64};
+        case Oper::SUB:
+          tmp = {Type::I64, compile(expr->op0).i64
+            - compile(expr->op1).i64};
           break;
-        case O_MUL:
-          tmp = {T_I64, compile(expr->op0).i64 *
-            compile(expr->op1).i64};
+        case Oper::MUL:
+          tmp = {Type::I64, compile(expr->op0).i64
+            * compile(expr->op1).i64};
           break;
-        case O_DIV:
-          tmp = {T_I64, compile(expr->op0).i64 /
-            compile(expr->op1).i64};
+        case Oper::DIV:
+          tmp = {Type::I64, compile(expr->op0).i64
+            / compile(expr->op1).i64};
           break;
       }
       break;
@@ -462,16 +468,16 @@ void add (Expr* expr)
     return;
   }
   switch (last->tag) {
-    case E_OBJ:
+    case Tag::OBJECT:
       switch (expr->tag) {
-        case E_OPER:
+        case Tag::OPERATOR:
           if (last->par) {
             if (last->par->prec < expr->prec) {
               expr->op0 = last->par->op1;
               last->par->op1 = expr;
               expr->par = last->par;
               last = expr;
-            } else if (last->par->prec >= expr->prec) {
+            } else {
               if (last->par->par) {
                 expr->op0 = last->par->par;
               } else {
@@ -489,9 +495,9 @@ void add (Expr* expr)
           break;
       }
       break;
-    case E_OPER:
+    case Tag::OPERATOR:
       switch (expr->tag) {
-        case E_OBJ:
+        case Tag::OBJECT:
           last->op1 = expr;
           expr->par = last;
           last = expr;
@@ -510,48 +516,45 @@ void wrap_symbol ()
 void wrap_number ()
 {
   Expr* expr = new Expr ();
-  expr->tag = E_OBJ;
-  expr->val.type = T_I64;
-  for (char chr : buffer) {
-    (expr->val.i64 *= 10) += (chr - 48);
-  }
-  buffer.clear ();
+  expr->tag = Tag::OBJECT;
+  expr->val = buffer_value;
+  buffer_value = {};
   add (expr);
 }
 
 void wrap_plus ()
 {
   Expr* expr = new Expr ();
-  expr->tag = E_OPER;
-  expr->oper = O_ADD;
-  expr->prec = ARILOW;
+  expr->tag = Tag::OPERATOR;
+  expr->oper = Oper::ADD;
+  expr->prec = Prec::ARILOW;
   add (expr);
 }
 
 void wrap_minus ()
 {
   Expr* expr = new Expr ();
-  expr->tag = E_OPER;
-  expr->oper = O_SUB;
-  expr->prec = ARILOW;
+  expr->tag = Tag::OPERATOR;
+  expr->oper = Oper::SUB;
+  expr->prec = Prec::ARILOW;
   add (expr);
 }
 
 void wrap_star ()
 {
   Expr* expr = new Expr ();
-  expr->tag = E_OPER;
-  expr->oper = O_MUL;
-  expr->prec = ARIHIGH;
+  expr->tag = Tag::OPERATOR;
+  expr->oper = Oper::MUL;
+  expr->prec = Prec::ARIHIGH;
   add (expr);
 }
 
 void wrap_slash ()
 {
   Expr* expr = new Expr ();
-  expr->tag = E_OPER;
-  expr->oper = O_DIV;
-  expr->prec = ARIHIGH;
+  expr->tag = Tag::OPERATOR;
+  expr->oper = Oper::DIV;
+  expr->prec = Prec::ARIHIGH;
   add (expr);
 }
 
