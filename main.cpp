@@ -2,13 +2,14 @@
 #include <iostream>
 #include <string>
 #include <map>
+#include <cmath>
 using namespace std;
 
 /*
   TODO:
   + add mul and div operators
     (implies creating priority system)
-  - add floating point literals
+  + add floating point literals
     (implies creating type system)
   - add parens grouping
   - add variables
@@ -75,6 +76,7 @@ enum class State {
   SPACE,
   SYMBOL,
   NUMBER,
+  FLOAT,
   PLUS,
   MINUS,
   STAR,
@@ -85,6 +87,7 @@ enum class Tag {
   OPERATOR
 };
 enum class Type {
+  UND,
   I64,
   F64
 };
@@ -103,6 +106,7 @@ struct Value {
   Type type;
   union {
     signed long i64;
+    double f64;
   };
 };
 
@@ -236,6 +240,7 @@ int main (int argc, char** argv)
 
 void parse ()
 {
+  int i = 0;
   for (char chr : line) {
     switch (state) {
       case State::SPACE:
@@ -312,8 +317,43 @@ void parse ()
             break;
           case '_':
             break;
+          case '.':
+            buffer_value.type = Type::F64;
+            buffer_value.f64 = (double)buffer_value.i64;
+            state = State::FLOAT;
+            break;
           case_DECIMAL:
             (buffer_value.i64 *= 10) += (chr & ~48);
+            break;
+        }
+        break;
+      case State::FLOAT:
+        switch (chr) {
+          default:
+            i = 0;
+            wrap_number ();
+            switch (chr) {
+              case ' ':
+                state = State::SPACE;
+                break;
+              case '+':
+                state = State::PLUS;
+                break;
+              case '-':
+                state = State::MINUS;
+                break;
+              case '*':
+                state = State::STAR;
+                break;
+              case '/':
+                state = State::SLASH;
+                break;
+            }
+            break;
+          case '_':
+            break;
+          case_DECIMAL:
+            buffer_value.f64 += ((double) (chr & ~48)) / pow((double)10,(double)++i);
             break;
         }
         break;
@@ -412,16 +452,24 @@ void parse ()
       state = State::SPACE;
       break;
     case State::NUMBER:
+    case State::FLOAT:
       wrap_number ();
       state = State::SPACE;
       break; 
   }
   if (root) {
     Value val = compile (root);
+    if (val.type == Type::UND) {
+      cout << "error: types don't match\n";
+      return;
+    }
     cout << "  _ : ";
     switch (val.type) {
       case Type::I64:
         cout << "Int64 = " << val.i64 << '\n';
+        break;
+      case Type::F64:
+        cout << "Float64 = " << val.f64 << '\n';
         break;
     }
   }
@@ -430,28 +478,72 @@ void parse ()
 Value compile (Expr*& expr)
 {
   Value tmp;
+  Value vl0;
+  Value vl1;
   switch (expr->tag) {
     case Tag::OBJECT:
       tmp = expr->val;
       break;
     case Tag::OPERATOR:
-      switch (expr->oper) {
-        case Oper::ADD:
-          tmp = {Type::I64, compile(expr->op0).i64
-            + compile(expr->op1).i64};
-          break;
-        case Oper::SUB:
-          tmp = {Type::I64, compile(expr->op0).i64
-            - compile(expr->op1).i64};
-          break;
-        case Oper::MUL:
-          tmp = {Type::I64, compile(expr->op0).i64
-            * compile(expr->op1).i64};
-          break;
-        case Oper::DIV:
-          tmp = {Type::I64, compile(expr->op0).i64
-            / compile(expr->op1).i64};
-          break;
+      if ((vl0 = compile (expr->op0)).type == Type::UND) {
+        return vl0;
+      }
+      if ((vl1 = compile (expr->op1)).type == Type::UND) {
+        return vl1;
+      }
+      if (vl0.type == vl1.type) {
+        switch (expr->oper) {
+          case Oper::ADD:
+            switch (vl0.type) {
+              case Type::I64:
+                tmp.type = Type::I64;
+                tmp.i64 = vl0.i64 + vl1.i64;
+                break;
+              case Type::F64:
+                tmp.type = Type::F64;
+                tmp.f64 = vl0.f64 + vl1.f64;
+                break;
+            }
+            break;
+          case Oper::SUB:
+            switch (vl0.type) {
+              case Type::I64:
+                tmp.type = Type::I64;
+                tmp.i64 = vl0.i64 - vl1.i64;
+                break;
+              case Type::F64:
+                tmp.type = Type::F64;
+                tmp.f64 = vl0.f64 - vl1.f64;
+                break;
+            }
+            break;
+          case Oper::MUL:
+            switch (vl0.type) {
+              case Type::I64:
+                tmp.type = Type::I64;
+                tmp.i64 = vl0.i64 * vl1.i64;
+                break;
+              case Type::F64:
+                tmp.type = Type::F64;
+                tmp.f64 = vl0.f64 * vl1.f64;
+                break;
+            }
+            break;
+          case Oper::DIV:
+            switch (vl0.type) {
+              case Type::I64:
+                tmp.type = Type::I64;
+                tmp.i64 = vl0.i64 / vl1.i64;
+                break;
+              case Type::F64:
+                tmp.type = Type::F64;
+                tmp.f64 = vl0.f64 / vl1.f64;
+                break;
+            }
+            break;
+        }
+      } else {
+        tmp = {Type::UND, 0};
       }
       break;
   }
