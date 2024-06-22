@@ -83,8 +83,11 @@ enum class State {
   SLASH
 };
 enum class Tag {
+  END,
   OBJECT,
-  OPERATOR
+  OPERATOR,
+  PAREN,
+  ENDPAREN
 };
 enum class Type {
   UND,
@@ -92,6 +95,7 @@ enum class Type {
   F64
 };
 enum class Oper {
+  UND,
   ADD,
   SUB,
   MUL,
@@ -134,6 +138,7 @@ Value buffer_value;
 void parse ();
 Value compile (Expr*&);
 void add (Expr*);
+Expr* search_paren (Expr* expr);
 
 void wrap_symbol ();
 void wrap_number ();
@@ -141,6 +146,9 @@ void wrap_plus ();
 void wrap_minus ();
 void wrap_star ();
 void wrap_slash ();
+void wrap_lpar ();
+void wrap_rpar ();
+void wrap_end ();
 
 int main (int argc, char** argv)
 {
@@ -226,12 +234,15 @@ int main (int argc, char** argv)
           }
           break;
         default:
-          line.push_back(chr);
-          i++;
-          cout << chr;
+          line.insert(i, 1, chr);
+          cout << line.substr (i++);
+          if (line.length() - i) {
+            cout << "\e[" << line.length() - i << "D";
+          }
           break;
       }
     }
+    // cout << "line: \"" << line << "\"\n";
     parse ();
   }
 
@@ -268,6 +279,12 @@ void parse ()
             break;
           case '/':
             state = State::SLASH;
+            break;
+          case '(':
+            wrap_lpar ();
+            break;
+          case ')':
+            wrap_rpar ();
             break;
           default:
             break;
@@ -313,6 +330,14 @@ void parse ()
               case '/':
                 state = State::SLASH;
                 break;
+              case '(':
+                wrap_lpar ();
+                state = State::SPACE;
+                break;
+              case ')':
+                wrap_rpar ();
+                state = State::SPACE;
+                break;
             }
             break;
           case '_':
@@ -347,6 +372,14 @@ void parse ()
                 break;
               case '/':
                 state = State::SLASH;
+                break;
+              case '(':
+                wrap_lpar ();
+                state = State::SPACE;
+                break;
+              case ')':
+                wrap_rpar ();
+                state = State::SPACE;
                 break;
             }
             break;
@@ -457,6 +490,7 @@ void parse ()
       state = State::SPACE;
       break; 
   }
+  wrap_end ();
   if (root) {
     Value val = compile (root);
     if (val.type == Type::UND) {
@@ -555,6 +589,10 @@ Value compile (Expr*& expr)
 void add (Expr* expr)
 {
   if (!root) {
+    if (expr->tag == Tag::END) {
+      delete expr;
+      return;
+    }
     root = expr;
     last = expr;
     return;
@@ -564,26 +602,58 @@ void add (Expr* expr)
       switch (expr->tag) {
         case Tag::OPERATOR:
           if (last->par) {
-            if (last->par->prec < expr->prec) {
-              expr->op0 = last->par->op1;
+            if (last->par->tag == Tag::PAREN) {
+              last->par->op0 = expr;
+              expr->par = last->par;
+              last->par = expr;
+              expr->op0 = last;
+              last = expr;
+            } else if (last->par->prec < expr->prec) {
+              expr->op0 = last;
               last->par->op1 = expr;
               expr->par = last->par;
+              last->par = expr;
               last = expr;
             } else {
               if (last->par->par) {
                 expr->op0 = last->par->par;
+                expr->par = last->par->par->par;
+                if (last->par->par->par) {
+                  last->par->par->par->op0 = expr;
+                }
+                last->par->par->par = expr;
+                if (last->par->par == root) {
+                  root = expr;
+                }
               } else {
                 expr->op0 = last->par;
+                expr->par = last->par->par;
+                if (last->par->par) {
+                  last->par->par->op0 = expr;
+                }
+                last->par->par = expr;
+                if (last->par == root) {
+                  root = expr;
+                }
               }
-              root = expr;
               last = expr;
             }
           } else {
             expr->op0 = last;
             last->par = expr;
-            root = expr;
+            if (last == root) {
+              root = expr;
+            }
             last = expr;
           }
+          break;
+        case Tag::ENDPAREN:
+          last = search_paren (last);
+          last->tag = Tag::ENDPAREN;
+          delete expr;
+          break;
+        case Tag::END:
+          delete expr;
           break;
       }
       break;
@@ -594,9 +664,113 @@ void add (Expr* expr)
           expr->par = last;
           last = expr;
           break;
+        case Tag::PAREN:
+          last->op1 = expr;
+          expr->par = last;
+          last = expr;
+          break;
+      }
+      break;
+    case Tag::PAREN:
+      switch (expr->tag) {
+        case Tag::OBJECT:
+          last->op0 = expr;
+          expr->par = last;
+          last = expr;
+          break;
+        case Tag::PAREN:
+          last->op0 = expr;
+          expr->par = last;
+          last = expr;
+          break;
+        case Tag::ENDPAREN:
+          cout << "unit???\n";
+          last->tag = Tag::ENDPAREN;
+          delete expr;
+          break;
+      }
+      break;
+    case Tag::ENDPAREN:
+      switch (expr->tag) {
+        case Tag::OPERATOR:
+          if (last->par) {
+            if (last->par->prec < expr->prec) {
+              expr->op0 = last->op0;
+              last->par->op1 = expr;
+              expr->par = last->par;
+              delete last;
+              last = expr;
+            } else {
+              if (last->par->par) {
+                expr->op0 = last->par->par;
+                expr->par = last->par->par->par;
+                if (last->par->par->par) {
+                  last->par->par->par->op0 = expr;
+                }
+                last->par->par->par = expr;
+                if (last->par->par == root) {
+                  root = expr;
+                }
+                last->par->op1 = last->op0;
+                last->op0->par = last->par;
+                delete last;
+                last = expr;
+              } else {
+                expr->op0 = last->par;
+                expr->par = last->par->par;
+                if (last->par->par) {
+                  last->par->par->op0 = expr;
+                }
+                last->par->par = expr;
+                if (last->par == root) {
+                  root = expr;
+                }
+                last->par->op1 = last->op0;
+                last->op0->par = last->par;
+                delete last;
+                last = expr;
+              }
+            }
+          } else {
+            expr->op0 = last->op0;
+            last->op0->par = expr;
+            root = expr;
+            delete last;
+            last = expr;
+          }
+          break;
+        case Tag::ENDPAREN:
+          last = search_paren (last);
+          last->tag = Tag::ENDPAREN;
+          delete expr;
+          break;
+        case Tag::END:
+          if (last == root) {
+            root = last->op0;
+          }
+          if (last->par) {
+            last->par->op1 = last->op0;
+            if (last->op0) {
+              last->op0->par = last->par;
+            }
+          }
+          delete last;
+          delete expr;
+          break;
       }
       break;
   }
+}
+
+Expr* search_paren (Expr* expr)
+{
+  if (expr->tag == Tag::PAREN) {
+    return expr;
+  }
+  if (expr->par) {
+    return search_paren (expr->par);
+  }
+  return 0;
 }
 
 void wrap_symbol ()
@@ -647,6 +821,27 @@ void wrap_slash ()
   expr->tag = Tag::OPERATOR;
   expr->oper = Oper::DIV;
   expr->prec = Prec::ARIHIGH;
+  add (expr);
+}
+
+void wrap_lpar ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = Tag::PAREN;
+  add (expr);
+}
+
+void wrap_rpar ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = Tag::ENDPAREN;
+  add (expr);
+}
+
+void wrap_end ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = Tag::END;
   add (expr);
 }
 
