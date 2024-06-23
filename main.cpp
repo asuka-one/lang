@@ -5,17 +5,6 @@
 #include <cmath>
 using namespace std;
 
-/*
-  TODO:
-  + add mul and div operators
-    (implies creating priority system)
-  + add floating point literals
-    (implies creating type system)
-  - add parens grouping
-  - add variables
-  - add type signatures
-*/
-
 #define case_LOWER \
   case'a':case'b':case'c': \
   case'd':case'e':case'f': \
