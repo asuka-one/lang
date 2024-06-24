@@ -49,6 +49,11 @@ map <string, int> args = {
   {"-v", 2}
 };
 
+map <string, int> kwds = {
+  {"true", 1},
+  {"false", 2}
+};
+
 string text_prompt_prefix = "> ";
 string text_usage = "Usage: comp [options] [files]\n"
   "Options:\n"
@@ -70,7 +75,10 @@ enum class State {
   PLUS,
   MINUS,
   STAR,
-  SLASH
+  SLASH,
+  BAR,
+  TILDE,
+  AMPER
 };
 enum class Tag {
   END,
@@ -82,18 +90,25 @@ enum class Tag {
 enum class Type {
   UND,
   I64,
-  F64
+  F64,
+  BOOL
 };
 enum class Oper {
   UND,
   ADD,
   SUB,
   MUL,
-  DIV
+  DIV,
+  IOR,
+  XOR,
+  AND
 };
 enum class Prec {
   ARILOW,
-  ARIHIGH
+  ARIHIGH,
+  BITOR,
+  BITXOR,
+  BITAND
 };
 
 struct Value {
@@ -101,6 +116,7 @@ struct Value {
   union {
     signed long i64;
     double f64;
+    bool bl;
   };
 };
 struct Expr {
@@ -129,15 +145,18 @@ Statement stmt;
 void read_line ();
 void parse ();
 Value compile (Expr*&);
-void add (Expr*);
 Expr* search_paren (Expr*);
 
 void wrap_symbol ();
 void wrap_number ();
+void wrap_bool ();
 void wrap_plus ();
 void wrap_minus ();
 void wrap_star ();
 void wrap_slash ();
+void wrap_or ();
+void wrap_xor ();
+void wrap_and ();
 void wrap_lpar ();
 void wrap_rpar ();
 void wrap_end ();
@@ -275,6 +294,15 @@ void parse ()
             break;
           case '/':
             state = State::SLASH;
+            break;
+          case '|':
+            state = State::BAR;
+            break;
+          case '~':
+            state = State::TILDE;
+            break;
+          case '&':
+            state = State::AMPER;
             break;
           case '(':
             wrap_lpar ();
@@ -494,6 +522,69 @@ void parse ()
             break;
         }
         break;
+      case State::BAR:
+        switch (chr) {
+          default:
+            wrap_or ();
+            switch (chr) {
+              case ' ':
+                state = State::SPACE;
+                break;
+              case '_':
+              case_LOWER:
+                buffer.push_back (chr);
+                state = State::SYMBOL;
+                break;
+              case_DECIMAL:
+                buffer.push_back (chr);
+                state = State::NUMBER;
+                break;
+            }
+            break;
+        }
+        break;
+      case State::TILDE:
+        switch (chr) {
+          default:
+            wrap_xor ();
+            switch (chr) {
+              case ' ':
+                state = State::SPACE;
+                break;
+              case '_':
+              case_LOWER:
+                buffer.push_back (chr);
+                state = State::SYMBOL;
+                break;
+              case_DECIMAL:
+                buffer.push_back (chr);
+                state = State::NUMBER;
+                break;
+            }
+            break;
+        }
+        break;
+      case State::AMPER:
+        switch (chr) {
+          default:
+            wrap_and ();
+            switch (chr) {
+              case ' ':
+                state = State::SPACE;
+                break;
+              case '_':
+              case_LOWER:
+                buffer.push_back (chr);
+                state = State::SYMBOL;
+                break;
+              case_DECIMAL:
+                buffer.push_back (chr);
+                state = State::NUMBER;
+                break;
+            }
+            break;
+        }
+        break;
     }
   }
   line_count++;
@@ -577,6 +668,42 @@ Value compile (Expr*& expr)
               case Type::F64:
                 tmp.type = Type::F64;
                 tmp.f64 = vl0.f64 / vl1.f64;
+                break;
+            }
+            break;
+          case Oper::IOR:
+            switch (vl0.type) {
+              case Type::I64:
+                tmp.type = Type::I64;
+                tmp.i64 = vl0.i64 | vl1.i64;
+                break;
+              case Type::BOOL:
+                tmp.type = Type::BOOL;
+                tmp.bl = vl0.bl | vl1.bl;
+                break;
+            }
+            break;
+          case Oper::XOR:
+            switch (vl0.type) {
+              case Type::I64:
+                tmp.type = Type::I64;
+                tmp.i64 = vl0.i64 ^ vl1.i64;
+                break;
+              case Type::BOOL:
+                tmp.type = Type::BOOL;
+                tmp.bl = vl0.bl ^ vl1.bl;
+                break;
+            }
+            break;
+          case Oper::AND:
+            switch (vl0.type) {
+              case Type::I64:
+                tmp.type = Type::I64;
+                tmp.i64 = vl0.i64 & vl1.i64;
+                break;
+              case Type::BOOL:
+                tmp.type = Type::BOOL;
+                tmp.bl = vl0.bl & vl1.bl;
                 break;
             }
             break;
@@ -725,11 +852,34 @@ void add_oper (Expr* expr)
 
 void wrap_symbol ()
 {
-  cout << "symbol: " << buffer << '\n';
+  switch (kwds[buffer]) {
+    case 0:
+      cout << "symbol: " << buffer << '\n';
+      break;
+    case 1:
+      buffer_value.type = Type::BOOL;
+      buffer_value.bl = true;
+      wrap_bool ();
+      break;
+    case 2:
+      buffer_value.type = Type::BOOL;
+      buffer_value.bl = false;
+      wrap_bool ();
+      break;
+  }
   buffer.clear ();
 }
 
 void wrap_number ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = Tag::OBJECT;
+  expr->val = buffer_value;
+  clear (buffer_value);
+  add_object (expr);
+}
+
+void wrap_bool ()
 {
   Expr* expr = new Expr ();
   expr->tag = Tag::OBJECT;
@@ -771,6 +921,33 @@ void wrap_slash ()
   expr->tag = Tag::OPERATOR;
   expr->oper = Oper::DIV;
   expr->prec = Prec::ARIHIGH;
+  add_oper (expr);
+}
+
+void wrap_or ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = Tag::OPERATOR;
+  expr->oper = Oper::IOR;
+  expr->prec = Prec::BITOR;
+  add_oper (expr);
+}
+
+void wrap_xor ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = Tag::OPERATOR;
+  expr->oper = Oper::XOR;
+  expr->prec = Prec::BITXOR;
+  add_oper (expr);
+}
+
+void wrap_and ()
+{
+  Expr* expr = new Expr ();
+  expr->tag = Tag::OPERATOR;
+  expr->oper = Oper::AND;
+  expr->prec = Prec::BITAND;
   add_oper (expr);
 }
 
@@ -851,6 +1028,11 @@ void wrap_end ()
     case Type::F64:
       cout << "Float64 = "
         << val.f64
+        << '\n';
+      break;
+    case Type::BOOL:
+      cout << "Bool = "
+        << val.bl
         << '\n';
       break;
   }

@@ -1,5 +1,6 @@
 
- - add bool type
+ - bind end token to semicolon
+ - add unary operators
  - add variables
  - add type signatures
  - add if-else construct
