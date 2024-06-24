@@ -2,7 +2,6 @@
 #include <iostream>
 #include <string>
 #include <map>
-#include <cmath>
 using namespace std;
 
 #define case_LOWER \
@@ -41,6 +40,7 @@ using namespace std;
   case'7':case'8':case'9'
 #define case_DECIMAL \
   case'0':case_NUMBER
+#define MAXDIGITPOS 1000000000000000 // 10 ** 15
 
 map <string, int> args = {
   {"--help", 1},
@@ -65,6 +65,7 @@ enum class State {
   SPACE,
   SYMBOL,
   NUMBER,
+  DECIMAL,
   FLOAT,
   PLUS,
   MINUS,
@@ -102,7 +103,6 @@ struct Value {
     double f64;
   };
 };
-
 struct Expr {
   Expr* par;
   Expr* op0;
@@ -112,9 +112,10 @@ struct Expr {
   Prec prec;
   Value val;
 };
-
-Expr* root;
-Expr* last;
+struct Statement {
+  Expr* root;
+  Expr* last;
+};
 
 string line;
 string buffer;
@@ -123,11 +124,13 @@ int line_count;
 
 State state;
 Value buffer_value;
+Statement stmt;
 
+void read_line ();
 void parse ();
 Value compile (Expr*&);
 void add (Expr*);
-Expr* search_paren (Expr* expr);
+Expr* search_paren (Expr*);
 
 void wrap_symbol ();
 void wrap_number ();
@@ -138,6 +141,10 @@ void wrap_slash ();
 void wrap_lpar ();
 void wrap_rpar ();
 void wrap_end ();
+
+void print_error (string);
+void clear (Value&);
+void clear (Statement&);
 
 int main (int argc, char** argv)
 {
@@ -171,76 +178,76 @@ int main (int argc, char** argv)
   cout << text_version;
 
   while (to_run) {
-    to_read_line = true;
-    line.clear();
-    int i = 0;
-    cout << text_prompt_prefix;
-    while (to_read_line) {
-      char chr = getchar ();
-      switch (chr) {
-        case '\n':
-          to_read_line = false;
-          cout << '\n';
-          break;
-        case '\e':
-          getchar (); // remove next '['
-          switch (getchar()) {
-            case 'A':
-              break;
-            case 'B':
-              break;
-            case 'C':
-              if (i < line.length ()) {
-                i++;
-                cout << "\e[C";
-              }
-              break;
-            case 'D':
-              if (i != 0) {
-                i--;
-                cout << "\e[D";
-              }
-              break;
-            case '3':
-              getchar (); // remove next '~'
-              if (!line.empty () && i < line.length ()) {
-                line.erase (i, 1);
-                cout << "\e[K" << line.substr (i);
-                if (line.length() - i) {
-                  cout << "\e[" << line.length() - i << "D";
-                }
-              }
-              break;
-          }
-          break;
-        case '\x7F':
-          if (!line.empty () && i) {
-            line.erase (--i, 1);
-            cout << "\b\e[K" << line.substr (i);
-            if (line.length() - i) {
-              cout << "\e[" << line.length() - i << "D";
-            }
-          }
-          break;
-        default:
-          line.insert(i, 1, chr);
-          cout << line.substr (i++);
-          if (line.length() - i) {
-            cout << "\e[" << line.length() - i << "D";
-          }
-          break;
-      }
-    }
-    // cout << "line: \"" << line << "\"\n";
+    read_line ();
     parse ();
   }
 
   return 0;
 }
 
+void read_line ()
+{
+  line.clear();
+  int index = 0;
+  cout << text_prompt_prefix;
+loop:
+  char chr = getchar ();
+  switch (chr) {
+    case '\n':
+      cout << '\n';
+      return;
+    case '\e':
+      getchar (); // remove next '['
+      switch (getchar()) {
+        case 'A':
+          goto loop;
+        case 'B':
+          goto loop;
+        case 'C':
+          if (index < line.length ()) {
+            index++;
+            cout << "\e[C";
+          }
+          goto loop;
+        case 'D':
+          if (index) {
+            index--;
+            cout << "\e[D";
+          }
+          goto loop;
+        case '3':
+          getchar (); // remove next '~'
+          if (!line.empty () && index < line.length ()) {
+            line.erase (index, 1);
+            cout << "\e[K" << line.substr (index);
+            if (line.length() - index) {
+              cout << "\e[" << line.length() - index << "D";
+            }
+          }
+          goto loop;
+      }
+    case '\x7F':
+      if (!line.empty () && index) {
+        line.erase (--index, 1);
+        cout << "\b\e[K" << line.substr (index);
+        if (line.length() - index) {
+          cout << "\e[" << line.length() - index << "D";
+        }
+      }
+      goto loop;
+    default:
+      line.insert (index, 1, chr);
+      cout << line.substr (index++);
+      if (line.length() - index) {
+        cout << "\e[" << line.length() - index << "D";
+      }
+      goto loop;
+  }
+}
+
 void parse ()
 {
-  int i = 0;
+  static long digit_pos = 1;
   for (char chr : line) {
     switch (state) {
       case State::SPACE:
@@ -332,20 +339,35 @@ void parse ()
           case '_':
             break;
           case '.':
-            buffer_value.type = Type::F64;
-            buffer_value.f64 = (double)buffer_value.i64;
-            state = State::FLOAT;
+            state = State::DECIMAL;
             break;
           case_DECIMAL:
             (buffer_value.i64 *= 10) += (chr & ~48);
             break;
         }
         break;
+      case State::DECIMAL:
+        switch (chr) {
+          default:
+            print_error ("malformed floating point number");
+            // clear_stmt (stmt);
+            state = State::SPACE;
+            break;
+          case_DECIMAL:
+            buffer_value.type = Type::F64;
+            buffer_value.f64 = (double)buffer_value.i64;
+            buffer_value.f64 +=
+              (double)(chr & ~48) /
+              (double)(digit_pos *= 10);
+            state = State::FLOAT;
+            break;
+        }
+        break;
       case State::FLOAT:
         switch (chr) {
           default:
-            i = 0;
             wrap_number ();
+            digit_pos = 1;
             switch (chr) {
               case ' ':
                 state = State::SPACE;
@@ -375,7 +397,16 @@ void parse ()
           case '_':
             break;
           case_DECIMAL:
-            buffer_value.f64 += ((double) (chr & ~48)) / pow((double)10,(double)++i);
+            if (digit_pos >= MAXDIGITPOS) {
+              print_error ("floating point number is too long");
+              digit_pos = 1;
+              clear (buffer_value);
+              clear (stmt);
+              break;
+            }
+            buffer_value.f64 +=
+              (double)(chr & ~48) /
+              (double)(digit_pos *= 10);
             break;
         }
         break;
@@ -476,26 +507,11 @@ void parse ()
     case State::NUMBER:
     case State::FLOAT:
       wrap_number ();
+      digit_pos = 1;
       state = State::SPACE;
       break; 
   }
   wrap_end ();
-  if (root) {
-    Value val = compile (root);
-    if (val.type == Type::UND) {
-      cout << "error: types don't match\n";
-      return;
-    }
-    cout << "  _ : ";
-    switch (val.type) {
-      case Type::I64:
-        cout << "Int64 = " << val.i64 << '\n';
-        break;
-      case Type::F64:
-        cout << "Float64 = " << val.f64 << '\n';
-        break;
-    }
-  }
 }
 
 Value compile (Expr*& expr)
@@ -575,182 +591,6 @@ Value compile (Expr*& expr)
   return tmp;
 }
 
-void add (Expr* expr)
-{
-  if (!root) {
-    if (expr->tag == Tag::END) {
-      delete expr;
-      return;
-    }
-    root = expr;
-    last = expr;
-    return;
-  }
-  switch (last->tag) {
-    case Tag::OBJECT:
-      switch (expr->tag) {
-        case Tag::OPERATOR:
-          if (last->par) {
-            if (last->par->tag == Tag::PAREN) {
-              last->par->op0 = expr;
-              expr->par = last->par;
-              last->par = expr;
-              expr->op0 = last;
-              last = expr;
-            } else if (last->par->prec < expr->prec) {
-              expr->op0 = last;
-              last->par->op1 = expr;
-              expr->par = last->par;
-              last->par = expr;
-              last = expr;
-            } else {
-              if (last->par->par) {
-                expr->op0 = last->par->par;
-                expr->par = last->par->par->par;
-                if (last->par->par->par) {
-                  last->par->par->par->op0 = expr;
-                }
-                last->par->par->par = expr;
-                if (last->par->par == root) {
-                  root = expr;
-                }
-              } else {
-                expr->op0 = last->par;
-                expr->par = last->par->par;
-                if (last->par->par) {
-                  last->par->par->op0 = expr;
-                }
-                last->par->par = expr;
-                if (last->par == root) {
-                  root = expr;
-                }
-              }
-              last = expr;
-            }
-          } else {
-            expr->op0 = last;
-            last->par = expr;
-            if (last == root) {
-              root = expr;
-            }
-            last = expr;
-          }
-          break;
-        case Tag::ENDPAREN:
-          last = search_paren (last);
-          last->tag = Tag::ENDPAREN;
-          delete expr;
-          break;
-        case Tag::END:
-          delete expr;
-          break;
-      }
-      break;
-    case Tag::OPERATOR:
-      switch (expr->tag) {
-        case Tag::OBJECT:
-          last->op1 = expr;
-          expr->par = last;
-          last = expr;
-          break;
-        case Tag::PAREN:
-          last->op1 = expr;
-          expr->par = last;
-          last = expr;
-          break;
-      }
-      break;
-    case Tag::PAREN:
-      switch (expr->tag) {
-        case Tag::OBJECT:
-          last->op0 = expr;
-          expr->par = last;
-          last = expr;
-          break;
-        case Tag::PAREN:
-          last->op0 = expr;
-          expr->par = last;
-          last = expr;
-          break;
-        case Tag::ENDPAREN:
-          cout << "unit???\n";
-          last->tag = Tag::ENDPAREN;
-          delete expr;
-          break;
-      }
-      break;
-    case Tag::ENDPAREN:
-      switch (expr->tag) {
-        case Tag::OPERATOR:
-          if (last->par) {
-            if (last->par->prec < expr->prec) {
-              expr->op0 = last->op0;
-              last->par->op1 = expr;
-              expr->par = last->par;
-              delete last;
-              last = expr;
-            } else {
-              if (last->par->par) {
-                expr->op0 = last->par->par;
-                expr->par = last->par->par->par;
-                if (last->par->par->par) {
-                  last->par->par->par->op0 = expr;
-                }
-                last->par->par->par = expr;
-                if (last->par->par == root) {
-                  root = expr;
-                }
-                last->par->op1 = last->op0;
-                last->op0->par = last->par;
-                delete last;
-                last = expr;
-              } else {
-                expr->op0 = last->par;
-                expr->par = last->par->par;
-                if (last->par->par) {
-                  last->par->par->op0 = expr;
-                }
-                last->par->par = expr;
-                if (last->par == root) {
-                  root = expr;
-                }
-                last->par->op1 = last->op0;
-                last->op0->par = last->par;
-                delete last;
-                last = expr;
-              }
-            }
-          } else {
-            expr->op0 = last->op0;
-            last->op0->par = expr;
-            root = expr;
-            delete last;
-            last = expr;
-          }
-          break;
-        case Tag::ENDPAREN:
-          last = search_paren (last);
-          last->tag = Tag::ENDPAREN;
-          delete expr;
-          break;
-        case Tag::END:
-          if (last == root) {
-            root = last->op0;
-          }
-          if (last->par) {
-            last->par->op1 = last->op0;
-            if (last->op0) {
-              last->op0->par = last->par;
-            }
-          }
-          delete last;
-          delete expr;
-          break;
-      }
-      break;
-  }
-}
-
 Expr* search_paren (Expr* expr)
 {
   if (expr->tag == Tag::PAREN) {
@@ -760,6 +600,127 @@ Expr* search_paren (Expr* expr)
     return search_paren (expr->par);
   }
   return 0;
+}
+
+void add_object (Expr* expr)
+{
+  if (!stmt.root) {
+    stmt.root = expr;
+    stmt.last = expr;
+    return;
+  }
+  switch (stmt.last->tag) {
+    case Tag::OPERATOR:
+      stmt.last->op1 = expr;
+      expr->par = stmt.last;
+      stmt.last = expr;
+      break;
+    case Tag::PAREN:
+      stmt.last->op0 = expr;
+      expr->par = stmt.last;
+      stmt.last = expr;
+      break;
+  }
+}
+
+void add_oper (Expr* expr)
+{
+  switch (stmt.last->tag) {
+    case Tag::OBJECT:
+      if (stmt.last->par) {
+        if (stmt.last->par->tag == Tag::PAREN) {
+          stmt.last->par->op0 = expr;
+          expr->par = stmt.last->par;
+          stmt.last->par = expr;
+          expr->op0 = stmt.last;
+          stmt.last = expr;
+        } else if (stmt.last->par->prec < expr->prec) {
+          expr->op0 = stmt.last;
+          stmt.last->par->op1 = expr;
+          expr->par = stmt.last->par;
+          stmt.last->par = expr;
+          stmt.last = expr;
+        } else {
+          if (stmt.last->par->par) {
+            expr->op0 = stmt.last->par->par;
+            expr->par = stmt.last->par->par->par;
+            if (stmt.last->par->par->par) {
+              stmt.last->par->par->par->op0 = expr;
+            }
+            stmt.last->par->par->par = expr;
+            if (stmt.last->par->par == stmt.root) {
+              stmt.root = expr;
+            }
+          } else {
+            expr->op0 = stmt.last->par;
+            expr->par = stmt.last->par->par;
+            if (stmt.last->par->par) {
+              stmt.last->par->par->op0 = expr;
+            }
+            stmt.last->par->par = expr;
+            if (stmt.last->par == stmt.root) {
+              stmt.root = expr;
+            }
+          }
+          stmt.last = expr;
+        }
+      } else {
+        expr->op0 = stmt.last;
+        stmt.last->par = expr;
+        if (stmt.last == stmt.root) {
+          stmt.root = expr;
+        }
+        stmt.last = expr;
+      }
+      break;
+    case Tag::ENDPAREN:
+      if (stmt.last->par) {
+        if (stmt.last->par->prec < expr->prec) {
+          expr->op0 = stmt.last->op0;
+          stmt.last->par->op1 = expr;
+          expr->par = stmt.last->par;
+          delete stmt.last;
+          stmt.last = expr;
+        } else {
+          if (stmt.last->par->par) {
+            expr->op0 = stmt.last->par->par;
+            expr->par = stmt.last->par->par->par;
+            if (stmt.last->par->par->par) {
+              stmt.last->par->par->par->op0 = expr;
+            }
+            stmt.last->par->par->par = expr;
+            if (stmt.last->par->par == stmt.root) {
+              stmt.root = expr;
+            }
+            stmt.last->par->op1 = stmt.last->op0;
+            stmt.last->op0->par = stmt.last->par;
+            delete stmt.last;
+            stmt.last = expr;
+          } else {
+            expr->op0 = stmt.last->par;
+            expr->par = stmt.last->par->par;
+            if (stmt.last->par->par) {
+              stmt.last->par->par->op0 = expr;
+            }
+            stmt.last->par->par = expr;
+            if (stmt.last->par == stmt.root) {
+              stmt.root = expr;
+            }
+            stmt.last->par->op1 = stmt.last->op0;
+            stmt.last->op0->par = stmt.last->par;
+            delete stmt.last;
+            stmt.last = expr;
+          }
+        }
+      } else {
+        expr->op0 = stmt.last->op0;
+        stmt.last->op0->par = expr;
+        stmt.root = expr;
+        delete stmt.last;
+        stmt.last = expr;
+      }
+      break;
+  }
 }
 
 void wrap_symbol ()
@@ -773,8 +734,8 @@ void wrap_number ()
   Expr* expr = new Expr ();
   expr->tag = Tag::OBJECT;
   expr->val = buffer_value;
-  buffer_value = {};
-  add (expr);
+  clear (buffer_value);
+  add_object (expr);
 }
 
 void wrap_plus ()
@@ -783,7 +744,7 @@ void wrap_plus ()
   expr->tag = Tag::OPERATOR;
   expr->oper = Oper::ADD;
   expr->prec = Prec::ARILOW;
-  add (expr);
+  add_oper (expr);
 }
 
 void wrap_minus ()
@@ -792,7 +753,7 @@ void wrap_minus ()
   expr->tag = Tag::OPERATOR;
   expr->oper = Oper::SUB;
   expr->prec = Prec::ARILOW;
-  add (expr);
+  add_oper (expr);
 }
 
 void wrap_star ()
@@ -801,7 +762,7 @@ void wrap_star ()
   expr->tag = Tag::OPERATOR;
   expr->oper = Oper::MUL;
   expr->prec = Prec::ARIHIGH;
-  add (expr);
+  add_oper (expr);
 }
 
 void wrap_slash ()
@@ -810,27 +771,103 @@ void wrap_slash ()
   expr->tag = Tag::OPERATOR;
   expr->oper = Oper::DIV;
   expr->prec = Prec::ARIHIGH;
-  add (expr);
+  add_oper (expr);
 }
 
 void wrap_lpar ()
 {
   Expr* expr = new Expr ();
   expr->tag = Tag::PAREN;
-  add (expr);
+  if (!stmt.root) {
+    stmt.root = expr;
+    stmt.last = expr;
+    return;
+  }
+  switch (stmt.last->tag) {
+    case Tag::OPERATOR: 
+      stmt.last->op1 = expr;
+      expr->par = stmt.last;
+      stmt.last = expr;
+      break;
+    case Tag::PAREN:
+      stmt.last->op0 = expr;
+      expr->par = stmt.last;
+      stmt.last = expr;
+      break;
+  }
 }
 
 void wrap_rpar ()
 {
-  Expr* expr = new Expr ();
-  expr->tag = Tag::ENDPAREN;
-  add (expr);
+  switch (stmt.last->tag) {
+    case Tag::OBJECT:
+      stmt.last = search_paren (stmt.last);
+      stmt.last->tag = Tag::ENDPAREN;
+      break;
+    case Tag::PAREN:
+      cout << "unit???\n";
+      stmt.last->tag = Tag::ENDPAREN;
+      break;
+    case Tag::ENDPAREN:
+      stmt.last = search_paren (stmt.last);
+      stmt.last->tag = Tag::ENDPAREN;
+      break;
+  }
 }
 
 void wrap_end ()
 {
-  Expr* expr = new Expr ();
-  expr->tag = Tag::END;
-  add (expr);
+  if (!stmt.root) {
+    return;
+  }
+  switch (stmt.last->tag) {   
+    case Tag::OBJECT:
+      break;
+    case Tag::ENDPAREN:
+      if (stmt.last == stmt.root) {
+        stmt.root = stmt.last->op0;
+      }
+      if (stmt.last->par) {
+        stmt.last->par->op1 = stmt.last->op0;
+        if (stmt.last->op0) {
+          stmt.last->op0->par = stmt.last->par;
+        }
+      }
+      delete stmt.last;
+      break;
+  }
+  Value val = compile (stmt.root);
+  if (val.type == Type::UND) {
+    cout << "error: types don't match\n";
+    return;
+  }
+  cout << "  _ : ";
+  switch (val.type) {
+    case Type::I64:
+      cout << "Int64 = "
+        << val.i64
+        << '\n';
+      break;
+    case Type::F64:
+      cout << "Float64 = "
+        << val.f64
+        << '\n';
+      break;
+  }
+}
+
+void print_error (string msg)
+{
+  cerr << "error: " << msg << "\n";
+}
+
+void clear (Value& value)
+{
+  value = Value ();
+}
+
+void clear (Statement& stmt)
+{
+  stmt = Statement ();
 }
 
