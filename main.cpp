@@ -310,6 +310,9 @@ void parse ()
           case ')':
             wrap_rpar ();
             break;
+          case ';':
+            wrap_end ();
+            break;
           default:
             break;
         }
@@ -324,6 +327,28 @@ void parse ()
                 break;
               case '+':
                 state = State::PLUS;
+                break;
+              case '-':
+                state = State::MINUS;
+                break;
+              case '*':
+                state = State::STAR;
+                break;
+              case '/':
+                state = State::SLASH;
+                break;
+              case '|':
+                state = State::BAR;
+                break;
+              case '~':
+                state = State::TILDE;
+                break;
+              case '&':
+                state = State::AMPER;
+                break;
+              case ';':
+                wrap_end ();
+                state = State::SPACE;
                 break;
             }
             break;
@@ -354,12 +379,25 @@ void parse ()
               case '/':
                 state = State::SLASH;
                 break;
+              case '|':
+                state = State::BAR;
+                break;
+              case '~':
+                state = State::TILDE;
+                break;
+              case '&':
+                state = State::AMPER;
+                break;
               case '(':
                 wrap_lpar ();
                 state = State::SPACE;
                 break;
               case ')':
                 wrap_rpar ();
+                state = State::SPACE;
+                break;
+              case ';':
+                wrap_end ();
                 state = State::SPACE;
                 break;
             }
@@ -378,7 +416,7 @@ void parse ()
         switch (chr) {
           default:
             print_error ("malformed floating point number");
-            // clear_stmt (stmt);
+            clear (stmt);
             state = State::SPACE;
             break;
           case_DECIMAL:
@@ -412,12 +450,25 @@ void parse ()
               case '/':
                 state = State::SLASH;
                 break;
+              case '|':
+                state = State::BAR;
+                break;
+              case '~':
+                state = State::TILDE;
+                break;
+              case '&':
+                state = State::AMPER;
+                break;
               case '(':
                 wrap_lpar ();
                 state = State::SPACE;
                 break;
               case ')':
                 wrap_rpar ();
+                state = State::SPACE;
+                break;
+              case ';':
+                wrap_end ();
                 state = State::SPACE;
                 break;
             }
@@ -446,6 +497,10 @@ void parse ()
               case ' ':
                 state = State::SPACE;
                 break;
+              case '(':
+                wrap_lpar ();
+                state = State::SPACE;
+                break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
@@ -465,6 +520,10 @@ void parse ()
             wrap_minus ();
             switch (chr) {
               case ' ':
+                state = State::SPACE;
+                break;
+              case '(':
+                wrap_lpar ();
                 state = State::SPACE;
                 break;
               case '_':
@@ -488,6 +547,10 @@ void parse ()
               case ' ':
                 state = State::SPACE;
                 break;
+              case '(':
+                wrap_lpar ();
+                state = State::SPACE;
+                break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
@@ -507,6 +570,10 @@ void parse ()
             wrap_slash ();
             switch (chr) {
               case ' ':
+                state = State::SPACE;
+                break;
+              case '(':
+                wrap_lpar ();
                 state = State::SPACE;
                 break;
               case '_':
@@ -530,6 +597,10 @@ void parse ()
               case ' ':
                 state = State::SPACE;
                 break;
+              case '(':
+                wrap_lpar ();
+                state = State::SPACE;
+                break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
@@ -551,6 +622,10 @@ void parse ()
               case ' ':
                 state = State::SPACE;
                 break;
+              case '(':
+                wrap_lpar ();
+                state = State::SPACE;
+                break;
               case '_':
               case_LOWER:
                 buffer.push_back (chr);
@@ -570,6 +645,10 @@ void parse ()
             wrap_and ();
             switch (chr) {
               case ' ':
+                state = State::SPACE;
+                break;
+              case '(':
+                wrap_lpar ();
                 state = State::SPACE;
                 break;
               case '_':
@@ -595,14 +674,13 @@ void parse ()
       wrap_symbol ();
       state = State::SPACE;
       break;
-    case State::NUMBER:
     case State::FLOAT:
-      wrap_number ();
       digit_pos = 1;
+    case State::NUMBER:
+      wrap_number ();
       state = State::SPACE;
       break; 
   }
-  wrap_end ();
 }
 
 Value compile (Expr*& expr)

@@ -1,5 +1,4 @@
 
- - bind end token to semicolon
  - add unary operators
  - add variables
  - add type signatures
